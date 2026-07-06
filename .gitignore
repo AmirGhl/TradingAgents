@@ -240,3 +240,6 @@ webui_server.log
 # ...but keep the launcher's PyInstaller spec (build recipe), which the
 # repo-wide *.spec rule above would otherwise ignore.
 !TradingAgentsLauncher.spec
+
+# Local editor/harness tooling (e.g. preview launch config).
+.claude/

@@ -146,6 +146,8 @@ def main():
     parser.add_argument("--language", default="English")
     parser.add_argument("--analysts", default="market,social,news,fundamentals",
                         help="comma-separated subset of: market,social,news,fundamentals")
+    parser.add_argument("--max-retries", type=int, default=4,
+                        help="LLM SDK retry budget for transient errors (429/5xx). 0 disables.")
     args = parser.parse_args()
 
     valid = {"market", "social", "news", "fundamentals"}
@@ -160,17 +162,16 @@ def main():
 
     config = DEFAULT_CONFIG.copy()
     config["llm_provider"] = args.provider
-    if args.provider == "groq":
-        # Groq free tier caps tokens *per minute* (8K-12K depending on the
-        # model), and an agent's sequential requests within the same minute
-        # all count toward it. Keep each tool result small (~1K tokens) so a
-        # full analyst turn stays under the ceiling (HTTP 413 otherwise).
-        config["tool_output_char_limit"] = 4000
     config["deep_think_llm"] = args.model
     config["quick_think_llm"] = args.model
     config["max_debate_rounds"] = args.rounds
     config["max_risk_discuss_rounds"] = args.rounds
     config["output_language"] = args.language
+    # Let the LLM SDK ride out transient rate limits (429) and 5xx with its own
+    # exponential backoff instead of crashing the run — free-tier cloud models
+    # (OpenRouter/Groq) throttle upstream unpredictably.
+    if args.max_retries and args.max_retries > 0:
+        config["llm_max_retries"] = args.max_retries
 
     ta = TradingAgentsGraph(selected_analysts=analysts, debug=True, config=config)
     print("@@STAGE@@running", flush=True)
@@ -223,11 +224,30 @@ def main():
     print("@@STAGE@@done", flush=True)
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Turn a raw SDK exception into a short, actionable line for the UI.
+
+    Rate-limit errors from free-tier providers carry a huge JSON blob that is
+    useless to a user; collapse it to a one-liner instead.
+    """
+    name = type(exc).__name__
+    text = str(exc)
+    if "RateLimit" in name or " 429" in text or "rate-limit" in text.lower():
+        return ("Rate limit — the model provider is throttling requests "
+                "(free-tier limit). Wait a minute and retry, or use your own "
+                "API key / a paid model. | محدودیت نرخ درخواست؛ کمی صبر کن و "
+                "دوباره اجرا کن یا از کلید/مدل شخصی استفاده کن.")
+    if "AuthenticationError" in name or " 401" in text:
+        return (f"Authentication failed — check the API key for this provider. "
+                f"| کلید API این ارائه‌دهنده اشتباه یا خالی است. ({name})")
+    return f"{name}: {text}"
+
+
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print("@@ERROR@@" + json.dumps(f"{type(e).__name__}: {e}", ensure_ascii=False), flush=True)
+        print("@@ERROR@@" + json.dumps(_friendly_error(e), ensure_ascii=False), flush=True)
         import traceback
 
         traceback.print_exc()
