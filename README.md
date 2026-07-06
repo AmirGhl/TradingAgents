@@ -201,6 +201,31 @@ An interface will appear showing results as they load, letting you track the age
   <img src="assets/cli/cli_transaction.png" width="100%" style="display: inline-block; margin: 0 2%;">
 </p>
 
+## Web UI
+
+A FastAPI + React web interface is bundled under [`webui/`](webui/). It runs an
+analysis from the browser, streaming each agent's progress live over a WebSocket,
+and renders the reports, a price chart, and a trade signal card. Persian/English
+UI, per-run provider/model selection, signal history, and an optional MetaTrader 5
+auto-trade bridge (Windows).
+
+```bash
+pip install -e ".[webui]"     # FastAPI + Uvicorn on top of the core install
+python -m webui               # serves the built frontend at http://127.0.0.1:8420
+```
+
+The prebuilt frontend in `webui/static/` is served as-is, so no Node step is
+required to run it. To rebuild the UI after editing `webui/frontend/`:
+
+```bash
+npm --prefix webui/frontend install
+npm --prefix webui/frontend run build     # emits webui/static/
+```
+
+On Windows, `launcher.py` (and its PyInstaller spec) packages the whole thing —
+bundled Python runtime plus the web UI — into a double-click `TradingAgentsLauncher.exe`.
+See [`README_FA.txt`](README_FA.txt) for the Persian end-user guide.
+
 ## TradingAgents Package
 
 ### Implementation Details

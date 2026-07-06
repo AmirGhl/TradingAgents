@@ -221,3 +221,22 @@ __marimo__/
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
 reports/
+
+# --- Web UI / desktop launcher ---
+# Node deps and frontend build cache (the committed webui/static/ dist is the
+# runtime bundle; rebuild it with `npm --prefix webui/frontend run build`).
+webui/frontend/node_modules/
+webui/frontend/dist/
+# Runtime state the web UI writes at runtime (signal history, saved settings,
+# generated GUI reports).
+gui_reports/
+# PyInstaller desktop-launcher artifacts and the bundled Python runtime.
+build/
+runtime/
+*.exe
+launcher_error.log
+webui_server.log
+*.log
+# ...but keep the launcher's PyInstaller spec (build recipe), which the
+# repo-wide *.spec rule above would otherwise ignore.
+!TradingAgentsLauncher.spec

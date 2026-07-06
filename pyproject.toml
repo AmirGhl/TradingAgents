@@ -44,15 +44,27 @@ dev = [
 bedrock = [
     "langchain-aws>=1.5.0",
 ]
+# Web UI (FastAPI backend + built React frontend). Optional so the core/CLI
+# install stays lean: pip install "tradingagents[webui]", then `python -m webui`.
+webui = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+]
+# MetaTrader 5 auto-trade bridge (Windows-only, needs the MT5 terminal). Optional:
+# pip install "tradingagents[mt5]".
+mt5 = [
+    "MetaTrader5>=5.0.45",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["tradingagents*", "cli*", "webui*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
+webui = ["static/*", "static/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
