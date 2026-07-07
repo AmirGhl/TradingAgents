@@ -9,7 +9,7 @@ print("=== چک محیط TradingAgents + Ollama ===\n")
 print(f"[1] Python: {sys.version.split()[0]}")
 
 # 2. پکیج‌های اصلی
-packages = ["langchain", "langchain_openai", "langgraph", "yfinance"]
+packages = ["langchain_core", "langchain_openai", "langgraph", "yfinance"]
 for pkg in packages:
     try:
         __import__(pkg.replace("-","_"))

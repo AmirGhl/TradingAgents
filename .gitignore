@@ -243,3 +243,7 @@ webui_server.log
 
 # Local editor/harness tooling (e.g. preview launch config).
 .claude/
+
+# PyInstaller output and the assembled portable release bundle.
+dist/
+release/
