@@ -7,9 +7,40 @@ Spawned by webui/server.py with the project root as cwd (so the
 """
 
 import argparse
+import hashlib
 import json
 import sys
 import time
+from pathlib import Path
+
+# ---- LLM analysis cache: skip the (slow, rate-limited) multi-agent graph when
+# the same (ticker, date, provider, model, analysts, rounds) was analyzed within
+# the TTL and price hasn't moved more than ~0.5 ATR. Opt-in via --cache-ttl. ----
+
+CACHE_PATH = Path(__file__).resolve().parent.parent / "gui_reports" / "llm_cache.json"
+
+
+def _cache_key(ticker, date, provider, model, rounds, analysts):
+    raw = f"{ticker}|{date}|{provider}|{model}|{rounds}|{','.join(sorted(analysts))}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_read():
+    try:
+        return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _cache_write(store):
+    try:
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Bound the store so it can't grow without limit.
+        if len(store) > 50:
+            store = dict(sorted(store.items(), key=lambda kv: kv[1].get("ts", 0))[-50:])
+        CACHE_PATH.write_text(json.dumps(store), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def atr14(highs, lows, closes, period=14):
@@ -148,6 +179,9 @@ def main():
                         help="comma-separated subset of: market,social,news,fundamentals")
     parser.add_argument("--max-retries", type=int, default=4,
                         help="LLM SDK retry budget for transient errors (429/5xx). 0 disables.")
+    parser.add_argument("--cache-ttl", type=int, default=0,
+                        help="Minutes to reuse a cached analysis for the same "
+                             "ticker/date/model when price barely moved. 0 = off.")
     args = parser.parse_args()
 
     valid = {"market", "social", "news", "fundamentals"}
@@ -156,6 +190,47 @@ def main():
         analysts = sorted(valid)
 
     print("@@STAGE@@loading", flush=True)
+
+    # Price series first — the chart tab shows it immediately, and the cache
+    # check needs the current price/ATR before deciding to run the graph.
+    prices = None
+    try:
+        import yfinance as yf
+
+        hist = yf.Ticker(args.ticker).history(period="6mo")
+        if len(hist) >= 2:
+            prices = {
+                "dates": [d.strftime("%Y-%m-%d") for d in hist.index],
+                "open": [round(float(v), 2) for v in hist["Open"]],
+                "high": [round(float(v), 2) for v in hist["High"]],
+                "low": [round(float(v), 2) for v in hist["Low"]],
+                "close": [round(float(v), 2) for v in hist["Close"]],
+                "volume": [int(v) for v in hist["Volume"]],
+            }
+            print("@@PRICES@@" + json.dumps(prices), flush=True)
+    except Exception:
+        prices = None
+
+    cur_price = prices["close"][-1] if prices and prices.get("close") else None
+    cur_atr = (atr14(prices["high"], prices["low"], prices["close"])
+               if prices and len(prices.get("close", [])) >= 15 else None)
+    ckey = _cache_key(args.ticker, args.date, args.provider, args.model, args.rounds, analysts)
+
+    # Cache hit → emit the stored analysis and skip the multi-agent LLM run
+    # entirely (saves tokens and dodges the rate limit) — unless price moved.
+    if args.cache_ttl > 0 and cur_price is not None:
+        ent = _cache_read().get(ckey)
+        if ent and (time.time() - ent.get("ts", 0)) < args.cache_ttl * 60:
+            moved = bool(cur_atr and ent.get("price") is not None
+                         and abs(cur_price - ent["price"]) > 0.5 * cur_atr)
+            if not moved:
+                print("♻ cache hit — reusing a recent analysis (no LLM call)", flush=True)
+                print("@@REPORTS@@" + json.dumps(ent["reports"], ensure_ascii=False), flush=True)
+                print("@@DECISION@@" + json.dumps(ent["decision"], ensure_ascii=False), flush=True)
+                if ent.get("signal"):
+                    print("@@SIGNAL@@" + json.dumps(ent["signal"], ensure_ascii=False), flush=True)
+                print("@@STAGE@@done", flush=True)
+                return
 
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.default_config import DEFAULT_CONFIG
@@ -175,26 +250,6 @@ def main():
 
     ta = TradingAgentsGraph(selected_analysts=analysts, debug=True, config=config)
     print("@@STAGE@@running", flush=True)
-
-    # Price series for the GUI chart — emitted before the (slow) analysis so
-    # the chart tab has something to show while agents are still working.
-    prices = None
-    try:
-        import yfinance as yf
-
-        hist = yf.Ticker(args.ticker).history(period="6mo")
-        if len(hist) >= 2:
-            prices = {
-                "dates": [d.strftime("%Y-%m-%d") for d in hist.index],
-                "open": [round(float(v), 2) for v in hist["Open"]],
-                "high": [round(float(v), 2) for v in hist["High"]],
-                "low": [round(float(v), 2) for v in hist["Low"]],
-                "close": [round(float(v), 2) for v in hist["Close"]],
-                "volume": [int(v) for v in hist["Volume"]],
-            }
-            print("@@PRICES@@" + json.dumps(prices), flush=True)
-    except Exception:
-        prices = None
 
     state, decision = ta.propagate(args.ticker, args.date)
 
@@ -221,6 +276,14 @@ def main():
             if a:
                 signal["atr"] = round(a, 4)
         print("@@SIGNAL@@" + json.dumps(signal, ensure_ascii=False), flush=True)
+
+    # Store the fresh result so a quick re-run within the TTL reuses it.
+    if args.cache_ttl > 0 and cur_price is not None:
+        store = _cache_read()
+        store[ckey] = {"ts": time.time(), "price": cur_price,
+                       "reports": reports, "decision": str(decision), "signal": signal}
+        _cache_write(store)
+
     print("@@STAGE@@done", flush=True)
 
 

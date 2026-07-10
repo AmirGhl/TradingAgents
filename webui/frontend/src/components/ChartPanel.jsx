@@ -28,17 +28,23 @@ import {
   adxSeries,
   pivotPoints,
 } from "../indicators.js";
-import { strategyMarkers, byId as strategyById, STRATEGIES, analyze } from "../strategies.js";
+import { strategyMarkers, STRATEGIES } from "../strategies.js";
 import TechRating from "./TechRating.jsx";
+import StrategyGauge from "./StrategyGauge.jsx";
+import AutoTrade from "./AutoTrade.jsx";
+import { useLiveQuote, useMt5Status, useBars } from "../utils.js";
+import { useStrategyLive } from "../livesignal.js";
 
-// TradingView-style timeframes; poll = live refresh cadence (null = static).
+// TradingView-style timeframes. poll = yfinance-fallback refresh cadence (null
+// = static); on the live MetaTrader feed candles stream over a WebSocket, not
+// this poll. staleMs = age past which the (yfinance) feed is flagged "closed".
 const TIMEFRAMES = [
-  { tf: "1m", interval: "1m", range: "1d", poll: 5_000, intraday: true },
-  { tf: "5m", interval: "5m", range: "5d", poll: 15_000, intraday: true },
-  { tf: "15m", interval: "15m", range: "5d", poll: 15_000, intraday: true },
-  { tf: "1h", interval: "1h", range: "1mo", poll: 60_000, intraday: true },
-  { tf: "1d", interval: "1d", range: "6mo", poll: null, intraday: false },
-  { tf: "1wk", interval: "1wk", range: "2y", poll: null, intraday: false },
+  { tf: "1m", interval: "1m", range: "1d", poll: 5_000, intraday: true, staleMs: 6 * 60_000 },
+  { tf: "5m", interval: "5m", range: "5d", poll: 15_000, intraday: true, staleMs: 20 * 60_000 },
+  { tf: "15m", interval: "15m", range: "5d", poll: 15_000, intraday: true, staleMs: 60 * 60_000 },
+  { tf: "1h", interval: "1h", range: "1mo", poll: 60_000, intraday: true, staleMs: 4 * 60 * 60_000 },
+  { tf: "1d", interval: "1d", range: "6mo", poll: null, intraday: false, staleMs: 4 * 86_400_000 },
+  { tf: "1wk", interval: "1wk", range: "2y", poll: null, intraday: false, staleMs: 14 * 86_400_000 },
 ];
 const STYLES = ["candles", "line", "area"];
 
@@ -71,18 +77,16 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
   const hostRef = useRef(null);
   const wrapRef = useRef(null);
   const barsByTime = useRef(new Map());
+  const mainRef = useRef(null); // main price series, for live-candle updates
   const [tfIdx, setTfIdx] = useState(loadTfIdx);
   useEffect(() => localStorage.setItem(LS_TF, String(tfIdx)), [tfIdx]);
   const [style, setStyle] = useState("candles");
   const [inds, setInds] = useState(loadInds);
   const [showMarkers, setShowMarkers] = useState(true);
   const [logScale, setLogScale] = useState(false);
-  const [bars, setBars] = useState(null);
   const [spotInfo, setSpotInfo] = useState(null); // {spot, pair} for futures
   const [legend, setLegend] = useState(null);
-  const [error, setError] = useState(null);
   const [showGuide, setShowGuide] = useState(false);
-  const [tick, setTick] = useState(0); // heartbeat for the live dot
 
   useEffect(() => localStorage.setItem(LS_KEY, JSON.stringify(inds)), [inds]);
   const toggle = (k) =>
@@ -90,39 +94,35 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
 
   const TF = TIMEFRAMES[tfIdx];
 
-  // ---- data fetch + live polling ----
+  // ---- unified market data: /api/chart serves the open MetaTrader terminal's
+  // own candles + live tick when it knows the symbol (source:"mt5" — the exact
+  // prices trades fire on), yfinance otherwise. One door for every panel. ----
+  const mt5s = useMt5Status();
+  const feed = useBars(ticker, { interval: TF.interval, range: TF.range, poll: TF.poll });
+  const bars = feed.bars;
+  const mt5Active = feed.source === "mt5";
+  const error = feed.error;
+
+  // Futures ↔ spot spread (GC=F/SI=F → XAUUSD/XAGUSD) — yfinance mode only;
+  // the broker feed needs no basis conversion.
   useEffect(() => {
-    if (!ticker) return;
+    if (!ticker || mt5Active) {
+      setSpotInfo(null);
+      return;
+    }
     let cancelled = false;
-    const load = () => {
-      fetch(`/api/chart?ticker=${encodeURIComponent(ticker)}&range=${TF.range}&interval=${TF.interval}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (cancelled) return;
-          if (data.error || !data.bars?.length) setError(data.error || "no data");
-          else {
-            setError(null);
-            setBars(data.bars);
-            setTick((n) => n + 1);
-          }
-        })
-        .catch((e) => !cancelled && setError(String(e)));
-      // Futures ↔ spot spread (GC=F/SI=F → XAUUSD/XAGUSD), refreshed together.
+    const load = () =>
       fetch(`/api/spot?ticker=${encodeURIComponent(ticker)}`)
         .then((r) => r.json())
         .then((d) => !cancelled && setSpotInfo(d.pair ? d : null))
         .catch(() => {});
-    };
-    setError(null);
-    setBars(null);
-    setSpotInfo(null);
     load();
-    const timer = TF.poll ? setInterval(load, TF.poll) : null;
+    const timer = setInterval(load, 30_000);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
-  }, [ticker, tfIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ticker, mt5Active]);
 
   const on = (k) => inds.includes(k);
   const subPanes = ["rsi", "macd", "stoch", "adx"].filter(on).length;
@@ -131,14 +131,52 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
   const lastBar = bars?.[bars.length - 1];
   const prevBar = bars?.[bars.length - 2];
   const change = lastBar && prevBar ? ((lastBar.close - prevBar.close) / prevBar.close) * 100 : null;
+  // Live price. On the MT5 stream use the BID — MetaTrader's candles are
+  // bid-based, so the bid is exactly the number on the MT5 chart (zero
+  // discrepancy). Off it, the yfinance/gold-api blend as before. Only the
+  // yfinance path polls a separate quote; on the stream the tick comes with
+  // the candles, so we skip the extra quote request entirely.
+  const liveQuote = useLiveQuote(mt5Active ? null : ticker);
+  const effSpotInfo = mt5Active ? null : spotInfo;
+  const livePx = mt5Active
+    ? feed.tick?.bid ?? feed.tick?.mid ?? lastBar?.close
+    : liveQuote?.price ?? lastBar?.close;
+  const liveSpot = mt5Active ? null : liveQuote?.spot ?? spotInfo?.spot;
+  const liveChange = livePx != null && prevBar ? ((livePx - prevBar.close) / prevBar.close) * 100 : change;
+  // Real-time futures↔spot basis so every set of MT5 SL/TP (rating + strategy)
+  // tracks the live spread instead of the last polled candle — zero on the
+  // broker feed, since those candles already are the broker's own symbol.
+  const liveSpread = mt5Active ? null : livePx != null && liveSpot != null ? livePx - liveSpot : null;
+  const liveSpotInfo = mt5Active
+    ? null
+    : spotInfo?.pair || liveQuote?.pair
+      ? { pair: spotInfo?.pair || liveQuote?.pair, spot: liveSpot ?? null }
+      : null;
+  // "Market closed" flag: the newest yfinance bar is far older than the tf's
+  // bar interval (weekend / after hours). Never stale on the live broker feed.
+  const stale =
+    !mt5Active && lastBar ? Date.now() - lastBar.time * 1000 > TF.staleMs : false;
   const rating = useMemo(() => (bars ? technicalRating(bars, TF.intraday) : null), [bars, TF.intraday]);
 
-  // Live analysis of the selected strategy on this timeframe (banner + levels).
-  const strat = strategyId ? strategyById(strategyId) : null;
-  const stratAnalysis = useMemo(
-    () => (strategyId && bars ? analyze(strategyId, bars, TF.intraday) : null),
-    [strategyId, bars, TF.intraday],
+  // Structural signature: changes only when the bar SET changes — a new bar
+  // forms (the rolling window slides, so the first/last bar times advance) or
+  // the length grows — NOT when the forming bar's OHLC ticks. The whole chart
+  // is rebuilt only on this; the forming candle then updates incrementally
+  // (effect below), so the 7 Hz MT5 stream never tears down and recreates the
+  // chart. Without this, a live stream would rebuild the chart ~7×/second.
+  const barsSig = bars ? `${feed.source}:${bars.length}:${bars[0]?.time}:${lastBar?.time}` : null;
+
+  // The ONE live strategy signal — same hook, same timeframe, same bars as the
+  // Plan tab, so the banner can never disagree with the plan page. Only a
+  // FRESH signal (not WAIT) exposes levels or a trade button.
+  const live = useStrategyLive(ticker, strategyId);
+  const strat = live.strat;
+  const stratAnalysis = live.analysis;
+  const stratActionable = !!(
+    stratAnalysis && !stratAnalysis.error && stratAnalysis.signal !== "WAIT" && stratAnalysis.last
   );
+  const stratLevelsRef = useRef(null);
+  stratLevelsRef.current = stratActionable ? stratAnalysis.last : null;
 
   // ---- chart build ----
   useEffect(() => {
@@ -186,6 +224,7 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
       });
       main.setData(bars.map((b) => ({ time: b.time, value: b.close })));
     }
+    mainRef.current = main;
 
     const overlay = (data, options) =>
       chart.addSeries(LineSeries, {
@@ -263,9 +302,10 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
       priceLine(signal.take_profit_2, "#2fd67b", "TP2", LineStyle.Solid);
     }
 
-    // Levels of the selected strategy's latest signal, so entry/SL/TP are
-    // readable straight off the chart.
-    const se = stratAnalysis && !stratAnalysis.error ? stratAnalysis.last : null;
+    // Levels of the selected strategy's CURRENT signal (fresh only — a WAIT
+    // strategy draws no entry lines), so entry/SL/TP read straight off the
+    // chart and always match the Plan tab.
+    const se = stratLevelsRef.current;
     if (se) {
       priceLine(se.entry, "#e8b64c", `⚡${t.entry}`, LineStyle.Dashed);
       priceLine(se.sl, "#ff5d6c", "⚡SL", LineStyle.Dashed);
@@ -362,9 +402,40 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
     host.__chart = chart;
     return () => {
       delete host.__chart;
+      mainRef.current = null;
       chart.remove();
     };
-  }, [bars, inds, signal, style, showMarkers, logScale, tfIdx, t.entry, strategyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [barsSig, inds, signal, style, showMarkers, logScale, tfIdx, t.entry, strategyId, // eslint-disable-line react-hooks/exhaustive-deps
+      stratActionable, stratAnalysis?.last?.time]); // rebuild on new bar/signal, not on every tick
+
+  // Live-moving last candle, applied WITHOUT rebuilding the chart. On the MT5
+  // stream the last bar IS MetaTrader's real forming candle (real O/H/L/C, bid-
+  // based) pushed ~7×/second — draw it verbatim so the chart matches MT5 tick
+  // for tick. On yfinance there's no forming candle, so roll the live quote
+  // onto the last bar as before. lightweight-charts' update() only touches the
+  // last point, so this is cheap at stream cadence.
+  useEffect(() => {
+    const s = mainRef.current;
+    if (!s || !lastBar) return;
+    try {
+      if (mt5Active) {
+        if (style === "candles") s.update(lastBar);
+        else s.update({ time: lastBar.time, value: lastBar.close });
+        return;
+      }
+      const p = livePx;
+      if (p == null) return;
+      if (style === "candles")
+        s.update({
+          time: lastBar.time,
+          open: lastBar.open,
+          high: Math.max(lastBar.high, p),
+          low: Math.min(lastBar.low, p),
+          close: p,
+        });
+      else s.update({ time: lastBar.time, value: p });
+    } catch { /* series was replaced mid-update */ }
+  }, [livePx, lastBar, style, mt5Active]);
 
   const lg = legend || lastBar;
   const lgChg = lg && barsByTime.current ? (() => {
@@ -383,23 +454,40 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
           <h3 style={{ direction: "ltr", fontFamily: "var(--font-mono)" }}>{ticker || "—"}</h3>
           {lastBar && (
             <div className="last-price" dir="ltr">
-              <span className="px">{fmt(lastBar.close, 4)}</span>
-              {change != null && (
-                <span className={`chg ${change >= 0 ? "up" : "down"}`}>
-                  {change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(2)}%
+              <span className="px">{fmt(livePx, mt5Active ? (feed.digits ?? 2) : 4)}</span>
+              {liveChange != null && (
+                <span className={`chg ${liveChange >= 0 ? "up" : "down"}`}>
+                  {liveChange >= 0 ? "▲" : "▼"} {Math.abs(liveChange).toFixed(2)}%
                 </span>
               )}
-              {spotInfo?.spot != null && (
+              {liveSpot != null && (spotInfo?.pair || liveQuote?.pair) && (
                 <span className="spot-chip" title={t.spot}>
-                  {spotInfo.pair} {fmt(spotInfo.spot, 2)}
-                  <em> · {t.spread} {fmt(lastBar.close - spotInfo.spot, 2)}</em>
+                  {spotInfo?.pair || liveQuote?.pair} {fmt(liveSpot, 2)}
+                  <em> · {t.spread} {fmt((livePx ?? lastBar.close) - liveSpot, 2)}</em>
+                </span>
+              )}
+              {mt5Active && feed.tick?.bid != null && feed.tick?.ask != null && (
+                // Exact broker bid/ask — a BUY fills at ask, a SELL at bid.
+                <span className="spot-chip" title={t.srcMt5Note}>
+                  bid {fmt(feed.tick.bid, feed.digits ?? 2)} / ask {fmt(feed.tick.ask, feed.digits ?? 2)}
+                  <em> · {t.spread} {fmt(feed.tick.ask - feed.tick.bid, feed.digits ?? 2)}</em>
                 </span>
               )}
             </div>
           )}
-          {TF.poll && (
+          <span
+            className={`src-chip ${mt5Active ? "mt5" : "yahoo"}`}
+            title={mt5Active ? t.srcMt5Note : ""}
+            dir="ltr"
+          >
+            {mt5Active
+              ? `🔌 ${t.srcMt5}${mt5s?.account?.login ? ` #${mt5s.account.login}` : ""}`
+              : `☁ ${t.srcYahoo}`}
+          </span>
+          {stale && <span className="src-chip stale">⚠ {t.mktStale}</span>}
+          {(TF.poll || mt5Active) && (
             <motion.span
-              key={tick}
+              key={feed.at}
               className="live-badge"
               initial={{ opacity: 0.55 }}
               animate={{ opacity: 1 }}
@@ -461,7 +549,7 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
           ))}
         </div>
 
-        {error && <div className="error-banner">{String(error)}</div>}
+        {!mt5Active && error && <div className="error-banner">{String(error)}</div>}
 
         {strat && stratAnalysis && !stratAnalysis.error && (() => {
           const m = strat.meta[t.dir === "rtl" ? "fa" : "en"];
@@ -475,17 +563,33 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
               animate={{ opacity: 1, y: 0 }}
             >
               <span className="sb-name">{strat.icon} {m.name}</span>
+              <span className="sb-meta" dir="ltr" title={t.plan.timeframe}>
+                {t.timeframes[live.tf] || live.tf}
+              </span>
               <span className={`verdict-badge sm ${sig === "BUY" ? "buy" : sig === "SELL" ? "sell" : "hold"}`}>
                 {sig === "WAIT" ? t.plan.dirWait : sig}
               </span>
-              {last ? (
+              {sig !== "WAIT" && last ? (
                 <>
                   <span className="sb-meta" dir="ltr">
-                    {last.dir} ·{" "}
                     {stratAnalysis.barsSince === 0
                       ? t.plan.justNow
                       : t.plan.barsAgo.replace("{n}", stratAnalysis.barsSince)}
                   </span>
+                  {livePx != null && (
+                    <span className="sb-meta" dir="ltr" title={t.plan.priceVsEntry}>
+                      @ {fmt(livePx, dpB)}
+                      {last.entry ? (
+                        <b
+                          className={livePx - last.entry >= 0 ? "up" : "down"}
+                          style={{ marginInlineStart: 6 }}
+                        >
+                          {livePx - last.entry >= 0 ? "+" : ""}
+                          {(((livePx - last.entry) / last.entry) * 100).toFixed(2)}%
+                        </b>
+                      ) : null}
+                    </span>
+                  )}
                   <span className="sb-levels" dir="ltr">
                     <b className="e">{last.entry.toFixed(dpB)}</b>
                     <i className="sl">SL {last.sl.toFixed(dpB)}</i>
@@ -499,7 +603,13 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
                   )}
                 </>
               ) : (
-                <span className="sb-meta">{t.plan.noSignalYet}</span>
+                // Neutral = NO tradable levels. Only say when the last signal
+                // fired, so a stale entry can never be mistaken for a live one.
+                <span className="sb-meta">
+                  {last
+                    ? `${t.plan.waitNoTrade} · ${last.dir} ${t.plan.barsAgo.replace("{n}", stratAnalysis.barsSince)}`
+                    : t.plan.noSignalYet}
+                </span>
               )}
             </motion.div>
           );
@@ -531,7 +641,51 @@ export default function ChartPanel({ ticker, signal, t, strategyId, onStrategyCh
       </div>
 
       <div style={{ height: 18 }} />
-      <TechRating rating={rating} t={t} spotInfo={spotInfo} futuresLast={lastBar?.close} ticker={ticker} />
+
+      {/* Aggregate strategy gauge: every strategy compatible with this chart
+          timeframe votes (fresh signals only, weighted by strength) — the
+          TradingView-style needle for the strategy engine. The selected
+          strategy's one-click trade block sits directly under the needle, and
+          only exists while that strategy has a FRESH signal (never on WAIT).
+          On the broker feed the levels already are the broker's own prices:
+          zero spread shift, resolved symbol. Same shared signal as the Plan tab. */}
+      <StrategyGauge
+        bars={bars}
+        intraday={TF.intraday}
+        tf={TF.tf}
+        t={t}
+        activeId={strategyId}
+        onPick={onStrategyChange}
+        live={live}
+      >
+        {strat && stratActionable && (
+          <AutoTrade
+            t={t}
+            ticker={ticker}
+            levels={{
+              dir: stratAnalysis.last.dir,
+              entry: stratAnalysis.last.entry,
+              sl: stratAnalysis.last.sl,
+              tp1: stratAnalysis.last.tp1,
+              tp2: stratAnalysis.last.tp2,
+            }}
+            spotInfo={live.source === "mt5" ? { pair: live.display } : liveSpotInfo ?? effSpotInfo}
+            spread={live.source === "mt5" ? null : liveSpread}
+            label={`${strat.icon} ${strat.meta[t.dir === "rtl" ? "fa" : "en"].name}`
+                   + (stratAnalysis.strength != null ? ` · 💪 ${stratAnalysis.strength}%` : "")}
+            tag={strat.id}
+          />
+        )}
+      </StrategyGauge>
+
+      <TechRating
+        rating={rating}
+        t={t}
+        spotInfo={mt5Active ? { pair: feed.display } : liveSpotInfo ?? effSpotInfo}
+        futuresLast={livePx}
+        ticker={ticker}
+        mt5={mt5Active}
+      />
 
       <AnimatePresence>
         {showGuide && (

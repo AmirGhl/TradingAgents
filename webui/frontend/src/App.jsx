@@ -30,6 +30,14 @@ const STAGE_SNIFF = [
 
 const MAX_LOG_LINES = 1200;
 
+// A pure-digit "ticker" is almost always an account number typed into the box
+// by mistake (e.g. an MT5 login) — ignore it and fall back to the dropdown so
+// the chart/plan/tape don't spin on a symbol Yahoo can never resolve.
+const cleanCustom = (c) => {
+  const v = (c || "").trim().toUpperCase();
+  return /^\d{4,}$/.test(v) ? "" : v;
+};
+
 function todayISO() {
   const d = new Date();
   return d.toISOString().slice(0, 10);
@@ -50,7 +58,11 @@ export default function App() {
   }, []);
 
   // ---- form state (ticker choice persists across visits) ----
-  const [ticker, setTicker] = useState(() => localStorage.getItem("ta_ticker") || "GC=F");
+  const [ticker, setTicker] = useState(() => {
+    // Drop a stale all-digit value (an account number saved by mistake).
+    const saved = localStorage.getItem("ta_ticker") || "GC=F";
+    return /^\d{4,}$/.test(saved) ? "GC=F" : saved;
+  });
   const [customTicker, setCustomTicker] = useState("");
   useEffect(() => localStorage.setItem("ta_ticker", ticker), [ticker]);
   const [date, setDate] = useState(todayISO());
@@ -83,11 +95,19 @@ export default function App() {
     const v = new URLSearchParams(location.search).get("view");
     return ["live", "reports", "chart", "plan", "history"].includes(v) ? v : "live";
   });
-  // plan → chart markers; starts on the strategy last picked in the plan tab
+  // THE selected strategy — one state for the whole app. The plan tab and the
+  // chart banner/gauge all read and write this, so they can never analyze two
+  // different strategies at once. Persisted; URL ?strategy= wins on load.
   const [chartStrategy, setChartStrategy] = useState(() => {
+    const q = new URLSearchParams(location.search).get("strategy");
+    if (strategyById(q)) return q;
     const saved = localStorage.getItem("ta_plan_strategy");
-    return strategyById(saved) ? saved : null;
+    return strategyById(saved) ? saved : "ema-cross";
   });
+  useEffect(() => {
+    if (chartStrategy) localStorage.setItem("ta_plan_strategy", chartStrategy);
+    else localStorage.removeItem("ta_plan_strategy");
+  }, [chartStrategy]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [serverDown, setServerDown] = useState(false);
@@ -125,7 +145,7 @@ export default function App() {
   }, []);
 
   const start = () => {
-    const symbol = (customTicker.trim() || ticker).toUpperCase();
+    const symbol = (cleanCustom(customTicker) || ticker).toUpperCase();
     runTicker.current = symbol;
     runInfoRef.current = {
       startedAt: Date.now(), date, provider, model,
@@ -271,7 +291,7 @@ export default function App() {
     ["history", t.viewHistory],
   ];
 
-  const activeTicker = customTicker.trim().toUpperCase() || ticker;
+  const activeTicker = cleanCustom(customTicker) || ticker;
 
   // Keyboard shortcuts: 1-5 switch tabs (ignored while typing in a field).
   useEffect(() => {
@@ -504,12 +524,11 @@ export default function App() {
             </div>
           )}
 
-          <AnimatePresence mode="wait">
             {view === "live" && (
-              <motion.div key="live" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
+              <motion.div key="live" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
                 <Pipeline stages={activeStages} statuses={stageStatus} labels={t.stages} />
                 {(signal || decision) && (
-                  <SignalCard signal={signal} decision={decision} spotAdj={spotAdj} t={t} lang={lang} />
+                  <SignalCard signal={signal} decision={decision} spotAdj={spotAdj} ticker={runTicker.current || activeTicker} t={t} lang={lang} />
                 )}
                 <div className="panel panel-pad">
                   <h3>{t.viewLive}</h3>
@@ -521,34 +540,40 @@ export default function App() {
               </motion.div>
             )}
             {view === "reports" && (
-              <motion.div key="reports" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
+              <motion.div key="reports" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
                 <ReportTabs reports={reports} t={t} dir={outLang === "Persian" ? "rtl" : "ltr"} />
               </motion.div>
             )}
             {view === "chart" && (
-              <motion.div key="chart" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
+              <motion.div key="chart" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
                 <ChartPanel ticker={activeTicker} signal={signal} t={t} strategyId={chartStrategy} onStrategyChange={setChartStrategy} />
               </motion.div>
             )}
             {view === "plan" && (
-              <motion.div key="plan" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
+              <motion.div key="plan" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
                 <PlanPanel
                   ticker={activeTicker}
                   t={t}
                   lang={lang}
+                  aiSignal={signal}
+                  strategyId={chartStrategy}
+                  onStrategyChange={setChartStrategy}
                   onShowOnChart={(id) => {
                     setChartStrategy(id);
                     setView("chart");
+                  }}
+                  onPickSymbol={(sym) => {
+                    setCustomTicker("");
+                    setTicker(sym);
                   }}
                 />
               </motion.div>
             )}
             {view === "history" && (
-              <motion.div key="history" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
+              <motion.div key="history" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
                 <HistoryPanel t={t} onOpen={openHistoryEntry} />
               </motion.div>
             )}
-          </AnimatePresence>
 
           <div className="disclaimer">{t.disclaimer}</div>
         </main>

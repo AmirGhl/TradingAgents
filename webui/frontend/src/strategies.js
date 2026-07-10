@@ -2303,7 +2303,7 @@ export const CATEGORIES = ["trend", "momentum", "reversal", "breakout", "scalp"]
 // Same-bar ambiguity resolves to SL (conservative). R multiples: win = reward
 // distance / risk distance at entry; loss = -1.
 
-export function backtest(bars, events) {
+export function backtest(bars, events, spread = 0) {
   const results = events.map((e) => {
     const risk = Math.abs(e.entry - e.sl) || 1e-9;
     for (let j = e.i + 1; j < bars.length; j++) {
@@ -2340,6 +2340,27 @@ export function backtest(bars, events) {
   const avgR = rs.length ? rs.reduce((s, v) => s + v, 0) / rs.length : null;
   const grossW = rs.filter((v) => v > 0).reduce((s, v) => s + v, 0);
   const grossL = -rs.filter((v) => v < 0).reduce((s, v) => s + v, 0);
+
+  // Spread-aware ("net") R: you enter on the far side of the spread and exit on
+  // the near side, so a round-trip costs ~one spread. Charged in R units per
+  // trade as spread / risk-distance — the honest number, since the on-chart R
+  // silently ignores it. Only computed when a live spread is supplied.
+  let net = null;
+  if (spread > 0) {
+    const netRs = closed.map((x) => {
+      const risk = Math.abs(x.entry - x.sl) || 1e-9;
+      return (x.r ?? 0) - spread / risk;
+    });
+    const nAvg = netRs.length ? netRs.reduce((s, v) => s + v, 0) / netRs.length : null;
+    const nW = netRs.filter((v) => v > 0).reduce((s, v) => s + v, 0);
+    const nL = -netRs.filter((v) => v < 0).reduce((s, v) => s + v, 0);
+    net = {
+      avgR: nAvg,
+      wins: netRs.filter((v) => v > 0).length,
+      winRate: netRs.length ? (netRs.filter((v) => v > 0).length / netRs.length) * 100 : null,
+      profitFactor: nL > 0 ? nW / nL : nW > 0 ? Infinity : null,
+    };
+  }
   return {
     results,
     stats: {
@@ -2351,6 +2372,7 @@ export function backtest(bars, events) {
       winRate: closed.length ? (wins.length / closed.length) * 100 : null,
       avgR,
       profitFactor: grossL > 0 ? grossW / grossL : grossW > 0 ? Infinity : null,
+      net,
     },
   };
 }
@@ -2359,7 +2381,7 @@ export function backtest(bars, events) {
 
 const FRESH_BARS = 3;
 
-export function analyze(stratId, bars, intraday) {
+export function analyze(stratId, bars, intraday, spread = 0) {
   const strat = byId(stratId);
   if (!strat || !bars?.length) return null;
   if (bars.length < strat.minBars)
@@ -2379,7 +2401,7 @@ export function analyze(stratId, bars, intraday) {
     );
   }
 
-  const bt = backtest(bars, events);
+  const bt = backtest(bars, events, spread);
   return {
     strategy: strat,
     events,
@@ -2390,7 +2412,29 @@ export function analyze(stratId, bars, intraday) {
     strength,
     rating,
     bt,
+    spread: spread || null,
   };
+}
+
+/** Blend the three directional sources — AI signal, the live strategy signal,
+ *  and the technical rating — into ONE confidence. Trade only when they agree.
+ *  Returns null if there's nothing to combine; otherwise { dir, score 0-100,
+ *  agree, total, parts }. */
+export function consensus({ aiDir, stratDir, stratStrength, ratingScore }) {
+  const norm = (d) => (d === "BUY" ? 1 : d === "SELL" ? -1 : 0);
+  const parts = [];
+  if (aiDir) parts.push({ key: "ai", v: norm(aiDir), w: 1 });
+  if (stratDir && stratDir !== "WAIT") parts.push({ key: "strategy", v: norm(stratDir), w: 1.2 });
+  if (ratingScore != null) parts.push({ key: "rating", v: Math.max(-1, Math.min(1, ratingScore)), w: 0.8 });
+  if (!parts.length) return null;
+  const wsum = parts.reduce((s, p) => s + p.w, 0);
+  const raw = parts.reduce((s, p) => s + p.v * p.w, 0) / wsum; // -1..1
+  const dir = raw > 0.15 ? "BUY" : raw < -0.15 ? "SELL" : "HOLD";
+  let score = Math.round(Math.abs(raw) * 100);
+  if (dir !== "HOLD" && stratDir === dir && stratStrength != null)
+    score = Math.round(score * 0.7 + stratStrength * 0.3);
+  const agree = parts.filter((p) => (dir === "BUY" ? p.v > 0 : dir === "SELL" ? p.v < 0 : false)).length;
+  return { dir, score: Math.max(0, Math.min(100, score)), agree, total: parts.length, parts };
 }
 
 /** Evaluate every strategy compatible with this timeframe (for the scanner). */

@@ -247,3 +247,5 @@ webui_server.log
 # PyInstaller output and the assembled portable release bundle.
 dist/
 release/
+
+graphify-out/

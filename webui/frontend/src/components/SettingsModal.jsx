@@ -13,6 +13,7 @@ export default function SettingsModal({ open, onClose, t, defaultTicker }) {
   const [saved, setSaved] = useState(false);
   const [tgResult, setTgResult] = useState(null);
   const [mt5Result, setMt5Result] = useState(null);
+  const [mt5Lock, setMt5Lock] = useState(null); // /api/mt5/status → lock state
   const [na, setNa] = useState({ ticker: "", op: ">=", price: "" });
   const [tapeText, setTapeText] = useState("");
 
@@ -39,19 +40,37 @@ export default function SettingsModal({ open, onClose, t, defaultTicker }) {
           tg_chat: d.tg_chat || "",
           sched_enabled: !!d.sched_enabled,
           sched_time: d.sched_time || "09:00",
+          llm_cache_min: d.llm_cache_min || 0,
           mt5_enabled: !!d.mt5_enabled,
           mt5_login: d.mt5_login || "",
           mt5_password: d.mt5_password || "",
           mt5_server: d.mt5_server || "",
           mt5_lot: d.mt5_lot || 0.01,
           mt5_suffix: d.mt5_suffix || "",
+          mt5_guard: !!d.mt5_guard,
+          mt5_max_daily_loss: d.mt5_max_daily_loss || 0,
+          mt5_trail: !!d.mt5_trail,
+          mt5_trail_pct: d.mt5_trail_pct || 0.5,
+          mt5_max_ccy: d.mt5_max_ccy || 0,
+          mt5_max_streak: d.mt5_max_streak || 0,
+          mt5_blackout: d.mt5_blackout || "",
         });
         setAlerts(d.alerts || []);
         setLastRun(d.last_run || null);
         setNa((p) => ({ ...p, ticker: p.ticker || defaultTicker || "" }));
       })
       .catch(() => setS({}));
+    fetch("/api/mt5/status")
+      .then((r) => r.json())
+      .then((d) => setMt5Lock(d.lock || { locked: false }))
+      .catch(() => setMt5Lock(null));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rearm = () =>
+    fetch("/api/mt5/rearm", { method: "POST" })
+      .then((r) => r.json())
+      .then((d) => setMt5Lock(d.lock || { locked: false }))
+      .catch(() => {});
 
   const save = () => {
     const symbols = tapeText
@@ -234,6 +253,18 @@ export default function SettingsModal({ open, onClose, t, defaultTicker }) {
                       <b>{C.schedNone}</b>
                     )}
                   </div>
+                  <div className="field" style={{ marginTop: 12, maxWidth: 260 }}>
+                    <label>{C.llmCache}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={s.llm_cache_min}
+                      dir="ltr"
+                      onChange={(e) => setS({ ...s, llm_cache_min: Number(e.target.value) })}
+                    />
+                    <div className="hint">{C.llmCacheHint}</div>
+                  </div>
                 </div>
 
                 {/* MT5 auto-trade account */}
@@ -333,6 +364,108 @@ export default function SettingsModal({ open, onClose, t, defaultTicker }) {
                     )}
                   </div>
                   <div className="hint" style={{ marginTop: 6 }}>{C.mt5Hint}</div>
+
+                  {/* safety guard / kill-switch */}
+                  <div className="plan-h" style={{ marginTop: 16 }}>🛡 {C.guard}</div>
+                  <label className={`check-item ${s.mt5_guard ? "ok" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={s.mt5_guard}
+                      onChange={(e) => setS({ ...s, mt5_guard: e.target.checked })}
+                    />
+                    <span className="box">{s.mt5_guard ? "✓" : ""}</span>
+                    {C.guardEnable}
+                  </label>
+                  <div className="hint" style={{ marginBottom: 8 }}>{C.guardEnableHint}</div>
+                  <div className="row2">
+                    <div className="field">
+                      <label>{C.guardMaxLoss}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={s.mt5_max_daily_loss}
+                        dir="ltr"
+                        onChange={(e) => setS({ ...s, mt5_max_daily_loss: Number(e.target.value) })}
+                      />
+                      <div className="hint">{C.guardMaxLossHint}</div>
+                    </div>
+                    <div className="field">
+                      <label>{C.guardMaxCcy}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={s.mt5_max_ccy}
+                        dir="ltr"
+                        onChange={(e) => setS({ ...s, mt5_max_ccy: Number(e.target.value) })}
+                      />
+                      <div className="hint">{C.guardMaxCcyHint}</div>
+                    </div>
+                  </div>
+                  <label className={`check-item ${s.mt5_trail ? "ok" : ""}`} style={{ marginTop: 10 }}>
+                    <input
+                      type="checkbox"
+                      checked={s.mt5_trail}
+                      onChange={(e) => setS({ ...s, mt5_trail: e.target.checked })}
+                    />
+                    <span className="box">{s.mt5_trail ? "✓" : ""}</span>
+                    {C.trailEnable}
+                  </label>
+                  <div className="hint" style={{ marginBottom: 8 }}>{C.trailEnableHint}</div>
+                  <div className="field" style={{ marginTop: 10, maxWidth: 340 }}>
+                    <label>{C.trailPct}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.05"
+                      value={s.mt5_trail_pct}
+                      dir="ltr"
+                      onChange={(e) => setS({ ...s, mt5_trail_pct: Number(e.target.value) })}
+                    />
+                    <div className="hint">{C.trailPctHint}</div>
+                  </div>
+                  <div className="row2">
+                    <div className="field">
+                      <label>{C.guardStreak}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={s.mt5_max_streak}
+                        dir="ltr"
+                        onChange={(e) => setS({ ...s, mt5_max_streak: Number(e.target.value) })}
+                      />
+                      <div className="hint">{C.guardStreakHint}</div>
+                    </div>
+                    <div className="field">
+                      <label>{C.guardBlackout}</label>
+                      <input
+                        type="text"
+                        value={s.mt5_blackout}
+                        dir="ltr"
+                        placeholder="15:00-15:15, 21:30-22:00"
+                        onChange={(e) => setS({ ...s, mt5_blackout: e.target.value })}
+                      />
+                      <div className="hint">{C.guardBlackoutHint}</div>
+                    </div>
+                  </div>
+                  {mt5Lock && (
+                    <div className="plan-actions" style={{ marginTop: 8, alignItems: "center" }}>
+                      <span className="hint">
+                        {C.guardStatus}{" "}
+                        <b style={{ color: mt5Lock.locked ? "var(--red)" : "var(--green)" }}>
+                          {mt5Lock.locked ? C.guardLocked : C.guardUnlocked}
+                        </b>
+                        {mt5Lock.locked && mt5Lock.detail ? ` — ${mt5Lock.detail}` : ""}
+                      </span>
+                      {mt5Lock.locked && (
+                        <button className="rtab" onClick={rearm}>{C.guardRearm}</button>
+                      )}
+                    </div>
+                  )}
+                  <div className="hint" style={{ marginTop: 6 }}>{C.guardStatusHint}</div>
+                  <div className="hint" style={{ marginTop: 6 }}>{C.guardHint}</div>
                 </div>
 
                 {/* price alerts */}

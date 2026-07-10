@@ -1,23 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { STRATEGIES, CATEGORIES, analyze, scanAll } from "../strategies.js";
+import { STRATEGIES, CATEGORIES, scanAll, consensus } from "../strategies.js";
 import AnimatedNumber from "./AnimatedNumber.jsx";
 import MTFStrip from "./MTFStrip.jsx";
-import { beep, notify } from "../utils.js";
+import PositionsPanel from "./PositionsPanel.jsx";
+import JournalPanel from "./JournalPanel.jsx";
+import ScannerPanel from "./ScannerPanel.jsx";
+import ArmPanel from "./ArmPanel.jsx";
+import CalibrationPanel from "./CalibrationPanel.jsx";
+import ReplayPanel from "./ReplayPanel.jsx";
+import { loadTape } from "./TickerTape.jsx";
+import TradeTicket, { mt5Symbol } from "./TradeTicket.jsx";
+import AutoTrade from "./AutoTrade.jsx";
+import { beep, notify, useLiveQuote, useMt5Status } from "../utils.js";
+import { useStrategyLive } from "../livesignal.js";
 
-// timeframe → [yfinance range, poll ms]. Longer ranges than the chart tab so
-// slow strategies (SMA200, Ichimoku) have enough bars.
-const TF_FETCH = {
-  "1m": ["1d", 10_000],
-  "5m": ["5d", 30_000],
-  "15m": ["1mo", 30_000],
-  "1h": ["3mo", 60_000],
-  "1d": ["2y", null],
-  "1wk": ["5y", null],
-};
-const INTRADAY = new Set(["1m", "5m", "15m", "1h"]);
-
-const LS_STRAT = "ta_plan_strategy";
 const LS_CALC = "ta_plan_calc";
 
 const CAT_CLS = {
@@ -95,78 +92,67 @@ function EquityCurve({ results }) {
   );
 }
 
-export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
+export default function PlanPanel({ ticker, t, lang, onShowOnChart, onPickSymbol, aiSignal,
+                                    strategyId, onStrategyChange }) {
   const P = t.plan;
-  const [stratId, setStratId] = useState(() => {
-    const q = new URLSearchParams(location.search).get("strategy");
-    if (STRATEGIES.some((s) => s.id === q)) return q;
-    const saved = localStorage.getItem(LS_STRAT);
-    return STRATEGIES.some((s) => s.id === saved) ? saved : null;
-  });
+  // Selection is owned by App (shared with the chart) — one strategy app-wide.
+  const stratId = strategyId ?? null;
   const strat = STRATEGIES.find((s) => s.id === stratId) || null;
   const [cat, setCat] = useState("all");
-  // Default timeframe: 1m (scalping-first) unless the saved strategy says otherwise.
-  const [tf, setTf] = useState(strat?.defaultTf || "1m");
-  const [bars, setBars] = useState(null);
-  const [error, setError] = useState(null);
   const [spotInfo, setSpotInfo] = useState(null);
   const [checks, setChecks] = useState(() => P.checklist.map(() => false));
   const [calc, setCalc] = useState(loadCalc);
   const [copied, setCopied] = useState(false);
   const [chartMsg, setChartMsg] = useState(false);
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const [tgState, setTgState] = useState(null); // null | "sending" | "ok" | "fail"
 
-  useEffect(() => {
-    if (stratId) localStorage.setItem(LS_STRAT, stratId);
-    else localStorage.removeItem(LS_STRAT);
-  }, [stratId]);
   useEffect(() => localStorage.setItem(LS_CALC, JSON.stringify(calc)), [calc]);
 
   const pickStrategy = (id) => {
-    const s = STRATEGIES.find((x) => x.id === id);
-    setStratId(id);
+    onStrategyChange?.(id);
     setChecks(P.checklist.map(() => false));
     setCopied(false);
-    if (s && !s.tfs.includes(tf)) setTf(s.defaultTf);
   };
 
-  // ---- data fetch + polling ----
+  // ---- THE live signal: the exact same hook the chart banner uses (shared
+  // timeframe, shared bar feed — broker candles + tick when MetaTrader is
+  // open, yfinance otherwise), so Plan and Chart can never disagree. ----
+  const live = useStrategyLive(ticker, stratId);
+  const { tf, setTf, intraday, bars, analysis } = live;
+  const mt5Active = live.source === "mt5";
+  const error = live.error;
+
+  // Futures ↔ spot spread (yfinance mode only — the broker feed IS the pair).
   useEffect(() => {
-    if (!ticker) return;
+    if (!ticker || mt5Active) {
+      setSpotInfo(null);
+      return;
+    }
     let cancelled = false;
-    const [range, poll] = TF_FETCH[tf] || ["1y", null];
-    const load = () => {
-      fetch(`/api/chart?ticker=${encodeURIComponent(ticker)}&range=${range}&interval=${tf}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (cancelled) return;
-          if (data.error || !data.bars?.length) setError(data.error || "no data");
-          else {
-            setError(null);
-            setBars(data.bars);
-          }
-        })
-        .catch((e) => !cancelled && setError(String(e)));
+    const load = () =>
       fetch(`/api/spot?ticker=${encodeURIComponent(ticker)}`)
         .then((r) => r.json())
         .then((d) => !cancelled && setSpotInfo(d.pair ? d : null))
         .catch(() => {});
-    };
-    setBars(null);
-    setError(null);
     load();
-    const timer = poll ? setInterval(load, poll) : null;
+    const timer = setInterval(load, 30_000);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
-  }, [ticker, tf]);
+  }, [ticker, mt5Active]);
 
-  const intraday = INTRADAY.has(tf);
-  const analysis = useMemo(
-    () => (strat && bars ? analyze(strat.id, bars, intraday) : null),
-    [strat, bars, intraday],
-  );
   // Leaderboard: every compatible strategy ranked by backtest expectancy.
+  // Scanning ~12 strategies + backtests is too heavy for the 7 Hz stream, so
+  // throttle the forming-bar refresh to ~1 s (instant on a new closed bar).
+  const [scanSlow, setScanSlow] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setScanSlow((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const lastLive = bars?.[bars.length - 1];
+  const scanKey = bars ? `${bars.length}:${lastLive?.time}:${tf}:${intraday}:${scanSlow}` : "";
   const scan = useMemo(() => {
     if (!bars) return [];
     const rows = scanAll(bars, intraday, tf);
@@ -175,22 +161,27 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
         ? x.a.bt.stats.avgR
         : -Infinity;
     return rows.sort((p, q) => score(q) - score(p));
-  }, [bars, intraday, tf]);
+  }, [scanKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const bestId = scan.find(
     (x) => x.a && !x.a.error && (x.a.bt?.stats?.closed ?? 0) >= 3 && x.a.bt.stats.avgR > 0,
   )?.id;
 
   // Fresh strategy signal while the tab is open → beep + notification.
   const lastNotified = useRef(null);
+  const notifyCtx = useRef(null);
   useEffect(() => {
     if (!analysis || analysis.error || analysis.signal === "WAIT" || !analysis.last) return;
-    const key = `${strat?.id}:${ticker}:${tf}:${analysis.last.time}:${analysis.last.dir}`;
-    if (lastNotified.current === null) {
-      lastNotified.current = key; // ignore whatever is fresh on first load
+    const ctx = `${strat?.id}:${ticker}:${tf}`;
+    const sig = `${analysis.last.time}:${analysis.last.dir}`;
+    // Switching symbol/timeframe/strategy is not a new signal — re-seed silently
+    // and only beep when a genuinely fresh signal forms within the same context.
+    if (notifyCtx.current !== ctx) {
+      notifyCtx.current = ctx;
+      lastNotified.current = sig;
       return;
     }
-    if (lastNotified.current !== key) {
-      lastNotified.current = key;
+    if (lastNotified.current !== sig) {
+      lastNotified.current = sig;
       beep(660);
       notify("TradingAgents", `${analysis.last.dir} · ${ticker} · ${tf}`);
     }
@@ -200,33 +191,128 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
   const last = analysis?.last || null;
   const sigDir = analysis?.signal || "WAIT";
   const rr = last ? Math.abs(last.tp2 - last.entry) / Math.max(Math.abs(last.entry - last.sl), 1e-9) : null;
-  const lastClose = bars?.[bars.length - 1]?.close;
-  const spread = spotInfo?.spot != null && lastClose != null ? lastClose - spotInfo.spot : null;
+  // Near-real-time quote: live price, futures↔spot spread and distance-to-entry,
+  // refreshed every ~2.5s between the slower candle polls.
+  const liveQuote = useLiveQuote(mt5Active ? null : ticker);
+  const barClose = bars?.[bars.length - 1]?.close;
+  // On the broker feed the live price is the BID (matches MetaTrader's own
+  // bid-based candles exactly), the symbol is the broker's own, and there is no
+  // futures/spot basis to shift (spread = null → levels used as-is). Off it,
+  // the previous yfinance/gold-api blend applies.
+  const lastClose = mt5Active
+    ? live.tick?.bid ?? live.tick?.mid ?? barClose
+    : liveQuote?.price ?? barClose;
+  const pair = mt5Active ? live.display : spotInfo?.pair || liveQuote?.pair || null;
+  const spread = mt5Active
+    ? null
+    : pair && liveQuote?.price != null && liveQuote?.spot != null
+      ? liveQuote.price - liveQuote.spot
+      : pair && spotInfo?.spot != null && barClose != null
+        ? barClose - spotInfo.spot
+        : null;
+  const toEntry = last && lastClose != null ? lastClose - last.entry : null;
+  const toEntryPct =
+    last && lastClose != null && last.entry ? ((lastClose - last.entry) / last.entry) * 100 : null;
+  // Consensus: AI signal + this strategy + the technical rating in one number.
+  const cons =
+    analysis && !analysis.error
+      ? consensus({
+          aiDir: aiSignal?.direction ? String(aiSignal.direction).toUpperCase() : null,
+          stratDir: sigDir,
+          stratStrength: analysis.strength,
+          ratingScore: analysis.rating?.score,
+        })
+      : null;
 
   // ---- position calculator ----
+  // Live account equity (when MT5 is connected) replaces the manual balance
+  // field automatically — no more typing a number that's already stale the
+  // moment a trade closes. `balanceManual` is an explicit opt-out for
+  // what-if planning (e.g. sizing against a hypothetical balance).
+  const mt5s = useMt5Status();
+  const liveEquity = mt5s?.account?.equity ?? null;
+  const [balanceManual, setBalanceManual] = useState(false);
+  const effBalance = !balanceManual && liveEquity != null ? liveEquity : calc.balance;
+
   const cSize = contractSizeFor(ticker);
-  const riskAmount = (calc.balance * calc.riskPct) / 100;
+  const riskAmount = (effBalance * calc.riskPct) / 100;
   const slDist = last ? Math.abs(last.entry - last.sl) : null;
   const units = slDist ? riskAmount / slDist : null;
   const lots = units != null ? units / cSize : null;
 
-  const copySignal = () => {
-    if (!last || !meta) return;
+  const signalText = () => {
+    if (!last || !meta) return null;
     const d = dp(last.entry);
-    const lines = [
+    return [
       `${ticker} — ${meta.name} (${tf})`,
       `${last.dir} @ ${last.entry.toFixed(d)}`,
       `SL ${last.sl.toFixed(d)} · TP1 ${last.tp1.toFixed(d)} · TP2 ${last.tp2.toFixed(d)} · RR ${rr?.toFixed(1)}`,
-      ...(spread != null
-        ? [`${spotInfo.pair}: entry ${(last.entry - spread).toFixed(2)} SL ${(last.sl - spread).toFixed(2)} TP1 ${(last.tp1 - spread).toFixed(2)} TP2 ${(last.tp2 - spread).toFixed(2)}`]
+      ...(spread != null && pair
+        ? [`${pair}: entry ${(last.entry - spread).toFixed(2)} SL ${(last.sl - spread).toFixed(2)} TP1 ${(last.tp1 - spread).toFixed(2)} TP2 ${(last.tp2 - spread).toFixed(2)}`]
         : []),
       new Date().toISOString().slice(0, 16).replace("T", " "),
-    ];
-    navigator.clipboard?.writeText(lines.join("\n")).then(() => {
+    ].join("\n");
+  };
+
+  const copySignal = () => {
+    const text = signalText();
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   };
+
+  const telegramSignal = async () => {
+    const text = signalText();
+    if (!text || tgState === "sending") return;
+    setTgState("sending");
+    try {
+      const r = await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `🎯 ${text}` }),
+      });
+      const d = await r.json();
+      setTgState(d.ok ? "ok" : "fail");
+    } catch {
+      setTgState("fail");
+    }
+    setTimeout(() => setTgState(null), 2500);
+  };
+
+  // Levels the trade ticket should send: spot-adjusted when the futures↔spot
+  // spread is known (MT5 brokers quote spot), raw chart levels otherwise.
+  const tradeSymbol = pair || mt5Symbol(ticker);
+  const adj = (v) => (spread != null ? v - spread : v);
+
+  // Broker-truth sizing: ask MT5 what this exact SL actually costs per lot for
+  // this exact symbol (real tick value/contract size), instead of the guessed
+  // contractSizeFor() above. Only available while connected and a fresh signal
+  // exists to size against.
+  const [brokerCalc, setBrokerCalc] = useState(null);
+  const bcKey = last ? `${tradeSymbol}:${Math.round(last.entry * 100)}:${Math.round(last.sl * 100)}` : null;
+  useEffect(() => {
+    if (!mt5Active || !last || !tradeSymbol) {
+      setBrokerCalc(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetch("/api/mt5/symbol_info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: tradeSymbol, entry: adj(last.entry), sl: adj(last.sl),
+          risk_pct: calc.riskPct,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => !cancelled && setBrokerCalc(d?.ok ? d : null))
+        .catch(() => !cancelled && setBrokerCalc(null));
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [mt5Active, bcKey, calc.riskPct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const levelRows = last
     ? [
@@ -289,6 +375,23 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
         </div>
       </div>
 
+      {/* ---------- A+ watchlist scanner ---------- */}
+      <ScannerPanel
+        t={t}
+        lang={lang}
+        watchlist={loadTape()}
+        onPick={(sym, stratId) => {
+          onPickSymbol?.(sym);
+          pickStrategy(stratId);
+        }}
+      />
+
+      {/* ---------- open positions (live account) ---------- */}
+      <PositionsPanel t={t} />
+
+      {/* ---------- auto-execution: armed strategies + shadow journal ---------- */}
+      <ArmPanel t={t} lang={lang} defaultTicker={pair || ticker} />
+
       {/* ---------- selected strategy ---------- */}
       <AnimatePresence mode="wait">
         {strat && meta && (
@@ -334,8 +437,14 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
               <div className="plan-sig-head">
                 <div>
                   <h3>{P.liveSignal}</h3>
-                  <div className="sub" dir="ltr" style={{ marginBottom: 0 }}>
-                    {ticker} · {tf}
+                  <div className="sub" dir="ltr" style={{ marginBottom: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span>{mt5Active ? live.display : ticker} · {tf}</span>
+                    <span
+                      className={`src-chip ${mt5Active ? "mt5" : "yahoo"}`}
+                      title={mt5Active ? t.srcMt5Note : ""}
+                    >
+                      {mt5Active ? `🔌 ${t.srcMt5}` : `☁ ${t.srcYahoo}`}
+                    </span>
                   </div>
                 </div>
                 <div className="chips" role="group" aria-label={P.timeframe}>
@@ -379,6 +488,9 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                           <span className={`sig-fresh ${sigDir !== "WAIT" ? "on" : ""}`}>
                             {sigDir !== "WAIT" ? `⚡ ${P.freshSignal}` : P.waitDesc}
                           </span>
+                          {aiSignal?.direction && last.dir === String(aiSignal.direction).toUpperCase() && (
+                            <span className="conf-badge">{P.aligned}</span>
+                          )}
                           <span dir="ltr">
                             {last.dir} · {fmtTime(last.time, intraday, lang)} ·{" "}
                             {analysis.barsSince === 0 ? P.justNow : P.barsAgo.replace("{n}", analysis.barsSince)}
@@ -389,6 +501,32 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                       )}
                     </div>
                   </div>
+
+                  {last && lastClose != null && (
+                    <div
+                      dir="ltr"
+                      style={{ display: "flex", alignItems: "center", gap: 12, margin: "10px 0", fontFamily: "var(--font-mono)", flexWrap: "wrap" }}
+                    >
+                      <span style={{ fontSize: 20, fontWeight: 700 }}>{fmt(lastClose, dp(lastClose))}</span>
+                      <span className={toEntry >= 0 ? "up" : "down"} style={{ fontSize: 13 }}>
+                        {P.priceVsEntry} {toEntry >= 0 ? "+" : ""}
+                        {fmt(toEntry, dp(lastClose))}
+                        {toEntryPct != null ? ` (${toEntryPct >= 0 ? "+" : ""}${toEntryPct.toFixed(2)}%)` : ""}
+                      </span>
+                      <span className="live-badge"><i />{t.live}</span>
+                    </div>
+                  )}
+
+                  {cons && (
+                    <div dir="ltr" style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0", flexWrap: "wrap" }}>
+                      <span className={`verdict-badge sm ${cons.dir === "BUY" ? "buy" : cons.dir === "SELL" ? "sell" : "hold"}`}>
+                        {cons.dir === "HOLD" ? P.dirWait : cons.dir}
+                      </span>
+                      <span className="hint">
+                        {P.consensus}: <b>{cons.score}%</b> · {cons.agree}/{cons.total} {P.sourcesAgree}
+                      </span>
+                    </div>
+                  )}
 
                   {analysis.strength != null && (
                     <div className="strength">
@@ -422,7 +560,17 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                     </ul>
                   )}
 
-                  {last && (
+                  {sigDir === "WAIT" && last && (
+                    // Neutral = no tradable levels, full stop. The last event
+                    // stays visible above as history; entries/SL/TP and every
+                    // trade button only exist while the signal is FRESH.
+                    <div className="hint" style={{ margin: "12px 0", padding: "10px 12px",
+                                                   border: "1px dashed var(--border)", borderRadius: 10 }}>
+                      ⏸ {P.waitNoTrade}
+                    </div>
+                  )}
+
+                  {sigDir !== "WAIT" && last && (
                     <>
                       <div className="plan-h" style={{ marginTop: 16 }}>{P.levels}</div>
                       <div className="levels" style={{ marginTop: 8 }}>
@@ -439,7 +587,7 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                       {spread != null && (
                         <div className="spot-levels">
                           <div className="spot-title">
-                            {t.spotLevels.replace("{pair}", spotInfo.pair)}
+                            {t.spotLevels.replace("{pair}", pair)}
                             <span className="spot-spread" dir="ltr">
                               {t.spread}: {spread.toFixed(2)}
                             </span>
@@ -463,8 +611,17 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                       )}
 
                       <div className="plan-actions">
+                        <button
+                          className="rtab trade-btn on"
+                          onClick={() => setTicketOpen(true)}
+                        >
+                          {P.trade}
+                        </button>
                         <button className="rtab on" onClick={copySignal}>
                           {copied ? P.copied : P.copy}
+                        </button>
+                        <button className="rtab" onClick={telegramSignal} disabled={tgState === "sending"}>
+                          {tgState === "ok" ? P.tgSent : tgState === "fail" ? P.tgFail : P.sendTg}
                         </button>
                         <button
                           className="rtab"
@@ -478,6 +635,33 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                         </button>
                         {chartMsg && <span className="hint">{P.onChartOn}</span>}
                       </div>
+
+                      <TradeTicket
+                        open={ticketOpen}
+                        onClose={() => setTicketOpen(false)}
+                        symbol={tradeSymbol}
+                        dir={last.dir}
+                        entry={adj(last.entry)}
+                        sl={adj(last.sl)}
+                        tp1={adj(last.tp1)}
+                        tp2={adj(last.tp2)}
+                        comment={`TA:${strat.id}`.slice(0, 26)}
+                        t={t}
+                      />
+
+                      {/* One-click auto-trade for this strategy's live signal —
+                          separate from the manual ⚡ ticket above and from the
+                          rating's auto-trade under the chart. Fresh signals
+                          only (this whole block is WAIT-gated). */}
+                      <AutoTrade
+                        t={t}
+                        ticker={ticker}
+                        levels={{ dir: last.dir, entry: last.entry, sl: last.sl, tp1: last.tp1, tp2: last.tp2 }}
+                        spotInfo={mt5Active ? { pair: live.display } : spotInfo}
+                        spread={spread}
+                        label={`${strat.icon} ${meta.name}`}
+                        tag={strat.id}
+                      />
                     </>
                   )}
                 </>
@@ -514,12 +698,25 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                 <div className="sub">{P.calcSub}</div>
                 <div className="row2">
                   <div className="field">
-                    <label>{P.balance}</label>
+                    <label>
+                      {P.balance}
+                      {liveEquity != null && (
+                        <button
+                          type="button"
+                          className="calc-src-toggle"
+                          onClick={() => setBalanceManual((v) => !v)}
+                          title={balanceManual ? P.balanceUseAuto : P.balanceUseManual}
+                        >
+                          {balanceManual ? `✎ ${P.manual}` : `🔌 ${P.autoAcct}`}
+                        </button>
+                      )}
+                    </label>
                     <input
                       type="number"
                       min="0"
-                      value={calc.balance}
+                      value={balanceManual || liveEquity == null ? calc.balance : Math.round(liveEquity * 100) / 100}
                       dir="ltr"
+                      disabled={!balanceManual && liveEquity != null}
                       onChange={(e) => setCalc((c) => ({ ...c, balance: Number(e.target.value) }))}
                     />
                   </div>
@@ -554,7 +751,34 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                     <div className="v">{lots != null ? fmt(lots, lots < 1 ? 3 : 2) : "—"}</div>
                   </div>
                 </div>
-                <div className="hint" style={{ marginTop: 8 }}>{P.calcNote}</div>
+
+                {/* Broker-truth sizing — the real number from MT5's own tick
+                    value, replacing the guessed contract size above. Only
+                    shown when it's actually available (connected + a fresh
+                    signal to size against). */}
+                {brokerCalc && (
+                  <div className="calc-broker">
+                    <div className="calc-broker-title">🔌 {P.calcBrokerTitle}</div>
+                    <div className="levels" style={{ marginTop: 6 }}>
+                      <div className="level">
+                        <div className="k">{P.riskAmount}</div>
+                        <div className="v">${fmt(brokerCalc.risk_money ?? riskAmount, 2)}</div>
+                      </div>
+                      <div className="level">
+                        <div className="k">{P.calcRiskPerLot}</div>
+                        <div className="v">${fmt(brokerCalc.risk_per_lot, 2)}</div>
+                      </div>
+                      <div className="level rr">
+                        <div className="k">{P.lots}</div>
+                        <div className="v">{brokerCalc.suggested_lot != null ? fmt(brokerCalc.suggested_lot, 2) : "—"}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="hint" style={{ marginTop: 8 }}>
+                  {liveEquity != null && !balanceManual ? P.calcNoteAuto : P.calcNote}
+                </div>
               </div>
             </div>
 
@@ -596,6 +820,25 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                   </div>
                 </div>
 
+                {/* Spread-aware "net" numbers — what the broker's live spread
+                    actually leaves on the table, which the on-chart R hides. */}
+                {analysis.bt.stats.net && (
+                  <div className="hint" dir="ltr" style={{ marginTop: 8 }}>
+                    {P.btNet} ({t.spread} {analysis.spread?.toFixed(2)}):{" "}
+                    <b style={{ color: analysis.bt.stats.net.avgR > 0 ? "var(--green)" : "var(--red)" }}>
+                      {analysis.bt.stats.net.avgR != null ? `${analysis.bt.stats.net.avgR.toFixed(2)}R` : "—"}
+                    </b>
+                    {" · "}
+                    {analysis.bt.stats.net.winRate != null ? `${analysis.bt.stats.net.winRate.toFixed(0)}% ${P.btWinRate}` : ""}
+                    {" · PF "}
+                    {analysis.bt.stats.net.profitFactor == null
+                      ? "—"
+                      : analysis.bt.stats.net.profitFactor === Infinity
+                        ? "∞"
+                        : analysis.bt.stats.net.profitFactor.toFixed(2)}
+                  </div>
+                )}
+
                 <EquityCurve results={analysis.bt.results} />
 
                 <div className="plan-h" style={{ marginTop: 18 }}>{P.recentSignals}</div>
@@ -627,6 +870,7 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
                     </tbody>
                   </table>
                 </div>
+                <ReplayPanel results={analysis.bt.results} t={t} />
                 <div className="hint" style={{ marginTop: 10 }}>⚠ {P.btDisclaimer}</div>
               </div>
             )}
@@ -705,6 +949,11 @@ export default function PlanPanel({ ticker, t, lang, onShowOnChart }) {
           <div className="hint" style={{ marginTop: 10 }}>{P.lbHint}</div>
         </div>
       )}
+
+      {/* ---------- confidence calibration + trade journal — kept at the very
+           bottom, below all the strategy content ---------- */}
+      <CalibrationPanel t={t} />
+      <JournalPanel t={t} lang={lang} />
     </div>
   );
 }

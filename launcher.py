@@ -41,13 +41,33 @@ def alert(title, text):
 
 def venv_python():
     """Project interpreter: the portable runtime/ first (works on any
-    machine the folder is copied to), then the local dev venv."""
+    machine the folder is copied to), then the local dev venv, then any
+    system python that already has the webui package importable."""
     root = project_dir()
     sub = "Scripts" if os.name == "nt" else "bin"
     name = "python.exe" if os.name == "nt" else "python"
     for p in (root / "runtime" / name, root / "venv" / sub / name):
         if p.exists():
             return str(p)
+    # Dev fallback: a system interpreter with the deps installed (pip install
+    # -e ".[webui]"). Probe it so a bare python without the packages produces
+    # the clear alert in main() instead of a silent server crash.
+    import shutil
+
+    for cand in ("python", "python3"):
+        exe = shutil.which(cand)
+        if not exe:
+            continue
+        try:
+            ok = subprocess.run(
+                [exe, "-c", "import webui.server"],
+                cwd=str(root), capture_output=True, timeout=30,
+                creationflags=CREATE_NO_WINDOW,
+            ).returncode == 0
+        except Exception:
+            ok = False
+        if ok:
+            return exe
     return None
 
 

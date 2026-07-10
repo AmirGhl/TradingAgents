@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 import AnimatedNumber from "./AnimatedNumber.jsx";
+import TradeTicket, { mt5Symbol } from "./TradeTicket.jsx";
 
 function ConfidenceRing({ value, label }) {
   const R = 20;
@@ -37,9 +39,14 @@ const DIR_CLASS = { BUY: "buy", SELL: "sell", HOLD: "hold" };
 const DIR_FA = { BUY: "خرید", SELL: "فروش", HOLD: "نگه‌داری" };
 
 /** Final decision + numeric trade levels, revealed with a spring. */
-export default function SignalCard({ signal, decision, spotAdj, t, lang }) {
+export default function SignalCard({ signal, decision, spotAdj, ticker, t, lang }) {
   const dir = (signal?.direction || String(decision || "").toUpperCase() || "HOLD").toUpperCase();
   const cls = DIR_CLASS[dir] || "hold";
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const tradeable = (dir === "BUY" || dir === "SELL") && signal?.entry != null && signal?.stop_loss != null;
+  // MT5 brokers quote spot: use the spot-adjusted levels when the spread is known.
+  const adj = (v) => (v != null && spotAdj?.spread != null ? v - spotAdj.spread : v);
+  const tradeSymbol = spotAdj?.pair || (ticker ? mt5Symbol(ticker) : null);
   const levels = [
     { key: "entry", label: t.entry, value: signal?.entry, cls: "entry" },
     { key: "sl", label: t.stopLoss, value: signal?.stop_loss, cls: "sl" },
@@ -142,6 +149,26 @@ export default function SignalCard({ signal, decision, spotAdj, t, lang }) {
       {signal?.entry != null && spotAdj?.pair && spotAdj.spread == null && (
         <div className="hint" style={{ marginTop: 10, color: "var(--gold)" }}>
           ⚠ {t.spotUnavailable}
+        </div>
+      )}
+
+      {tradeable && tradeSymbol && (
+        <div className="plan-actions" style={{ marginTop: 14 }}>
+          <button className="rtab on trade-btn" onClick={() => setTicketOpen(true)}>
+            {t.plan.trade}
+          </button>
+          <TradeTicket
+            open={ticketOpen}
+            onClose={() => setTicketOpen(false)}
+            symbol={tradeSymbol}
+            dir={dir}
+            entry={adj(signal.entry)}
+            sl={adj(signal.stop_loss)}
+            tp1={adj(signal.take_profit_1)}
+            tp2={adj(signal.take_profit_2)}
+            comment="TA:ai-signal"
+            t={t}
+          />
         </div>
       )}
     </motion.div>
