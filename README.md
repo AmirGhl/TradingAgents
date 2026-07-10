@@ -1,63 +1,72 @@
 <div align="center">
 
-# TradingAgents — اتاق معاملاتِ چند-ایجنتی
+# 🧠 TradingAgents
 
-**تحلیلِ بازار با تیمی از ایجنت‌های هوشِ مصنوعی + موتورِ زندهٔ ۲۵ استراتژیِ کلاسیک + اتصالِ مستقیم و بدونِ تأخیر به متاتریدر ۵.**
+### The Multi-Agent Trading Room
 
-[![Release](https://img.shields.io/github/v/release/AmirGhl/TradingAgents?label=دانلود%20ویندوز&color=14C290)](https://github.com/AmirGhl/TradingAgents/releases/latest)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2064--bit-0078D6?logo=windows)](https://github.com/AmirGhl/TradingAgents/releases/latest)
+**AI analyst team + a live 25-strategy engine + zero-lag MetaTrader 5 streaming — in one desktop app.**
 
-[دانلودِ نسخهٔ ویندوز](https://github.com/AmirGhl/TradingAgents/releases/latest) ·
-[راهنمای سریعِ فارسی](README_FA.md) ·
-[راهنمای کاملِ فنی](RAHNAMA.md) ·
-[نقشهٔ راه](ideas/)
+[![Release](https://img.shields.io/github/v/release/AmirGhl/TradingAgents?label=Download%20for%20Windows&color=14C290&style=for-the-badge&logo=windows)](https://github.com/AmirGhl/TradingAgents/releases/latest)
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2064--bit-0078D6?style=flat-square&logo=windows)](https://github.com/AmirGhl/TradingAgents/releases/latest)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![React](https://img.shields.io/badge/frontend-React%2019-61DAFB?style=flat-square&logo=react&logoColor=white)](webui/frontend)
+[![Node](https://img.shields.io/badge/auto--exec-Node.js-339933?style=flat-square&logo=node.js&logoColor=white)](webui/signal_engine.mjs)
+
+**[⬇ Download for Windows](https://github.com/AmirGhl/TradingAgents/releases/latest)** &nbsp;·&nbsp;
+**[📘 Quick start (Persian)](README_FA.md)** &nbsp;·&nbsp;
+**[🛠 Full architecture guide](RAHNAMA.md)** &nbsp;·&nbsp;
+**[🗺 Roadmap](ideas/)**
 
 </div>
 
----
+<br>
 
-## این چیست؟
-
-یک اپِ دسکتاپیِ ویندوزی (FastAPI + React) که سه لایه را در یک پنجره کنار هم می‌گذارد:
-
-1. **تحلیلِ چندایجنتیِ هوشِ مصنوعی** — چند مدلِ LLM با نقشِ تحلیل‌گرِ بازار/اخبار/فاندامنتال/احساسات با هم مناظره می‌کنند و مدیرِ ریسک و مدیرِ پرتفوی تصمیمِ نهایی را با ورود/حدضرر/هدف صادر می‌کنند.
-2. **موتورِ ۲۵ استراتژیِ کلاسیکِ معاملاتی** (EMA cross، RSI، بولینگر، سوپرترند، ایچیموکو، ORB، …) که مستقل از AI، روی کندل‌های زنده اجرا می‌شود و سیگنالِ لحظه‌ای می‌دهد — با بک‌تستِ خودکار و گیجِ برآیندِ رأی.
-3. **اتصالِ زندهٔ متاتریدر ۵** — وقتی ترمینال باز است، قیمت و کندل مستقیم و بدونِ تأخیر (WebSocket، ~۷ بار در ثانیه) از خودِ حساب گرفته می‌شود؛ سفارش هم دستی (یک‌کلیکی) یا خودکار (با حالتِ «سایه» برای تستِ بدونِ ریسک) ارسال می‌شود.
-
-مخاطب: یک تریدرِ شخصی که می‌خواهد هم تحلیلِ AI و هم استراتژیِ کلاسیک را کنارِ حسابِ واقعیِ خودش، در یک ابزار، بدونِ نصبِ چیزِ اضافه ببیند.
-
-> ⚠️ این ابزار پژوهشی/کمکی است، نه مشاورِ مالی. هیچ سیگنالی تضمین‌شده نیست و مسئولیتِ هر معامله با خودِ کاربر است.
+> [!WARNING]
+> This is a research tool, not financial advice. No signal is guaranteed. Every strategy, live signal, and auto-execution row starts **safe by default** — see [Shadow mode](#-shadow-mode-prove-it-before-you-trust-it) below.
 
 ---
 
-## ویژگی‌های کلیدی
+## What is this?
+
+TradingAgents stacks three independent layers into one window:
+
+1. **🤖 Multi-agent AI analysis** — a team of LLM agents (market, news, fundamentals, sentiment) debate a symbol; a risk manager and portfolio manager turn the debate into one decision with entry / stop-loss / targets.
+2. **🎯 A live 25-strategy engine** — classic technical strategies (EMA cross, RSI, Bollinger, SuperTrend, Ichimoku, ORB, VWAP scalps, …) run independently of the AI, directly on live candles, each with automatic backtesting and a combined-vote gauge.
+3. **🔌 Zero-lag MetaTrader 5 integration** — when the terminal is open, price and candles stream straight from the account over a WebSocket (~7 updates/second); orders go out one-click or fully automated, with a shadow (paper) mode to prove a setup before real money touches it.
+
+Built for a solo trader who wants AI-grade analysis *and* battle-tested classic strategies sitting next to their real broker account, in one tool, with nothing extra to install.
+
+---
+
+## ✨ Highlights
 
 | | |
 |---|---|
-| 🔌 **دادهٔ بدونِ تأخیر** | استریمِ WebSocket مستقیم از ترمینالِ باز؛ قیمت = bid واقعیِ بروکر، کندلِ در حالِ شکل‌گیری هم واقعی است، نه جعلی. ترمینال بسته شد؟ خودکار روی Yahoo Finance می‌افتد و با بازشدنِ دوباره برمی‌گردد. |
-| 🎯 **۲۵ استراتژیِ آماده** | از تقاطعِ طلایی و RSI تا اسکالپِ ۱ دقیقه‌ای با VWAP — هرکدام با قوانین، بک‌تست، و سطوحِ ورود/حدضرر/هدفِ خودکار. سیگنالِ چارت و پلن همیشه یکی است، چون از یک موتور می‌خوانند. |
-| ⏸ **سیگنالِ خنثی = بدونِ معامله** | استراتژی فقط تا چند کندل بعد از رویداد «تازه» است؛ بعدِ آن هیچ سطح و دکمهٔ معامله‌ای نشان داده نمی‌شود — تا هرگز روی سیگنالِ کهنه معامله نکنی. |
-| 📊 **R خالص با اسپرد** | بک‌تست هزینهٔ واقعیِ اسپرد (bid/ask) را هم حساب می‌کند — می‌تواند نشان دهد یک استراتژیِ ظاهراً سودده، بعدِ هزینهٔ واقعی زیان‌ده است. |
-| 🌓 **اجرای خودکار با حالتِ سایه** | هر استراتژی را روی هر نماد «مسلح» کن؛ پیش‌فرض فقط ثبتِ فرضی با قیمتِ واقعی (بدونِ سفارشِ واقعی) — رفتن به حالتِ زنده انتخابِ صریح و آگاهانه است. |
-| 🛡 **گاردهای ایمنی** | سقفِ ضررِ روزانه، تریلینگ‌استاپِ خودکار، بلک‌اوتِ خبری، سقفِ اکسپوژرِ ارزی، رعایتِ حداقلِ فاصلهٔ SL/TP بروکر، چکِ مارجینِ آزاد — همه قبل از هر سفارش. |
-| 🤖 **پیش‌نمایشِ ریسک** | قبلِ هر سفارش می‌بینی «اگر حدضرر بخورد = چند دلار = چند درصدِ حساب» — عددِ واقعیِ بروکر، نه تخمین. حسابِ واقعی هم قرمز می‌شود تا با دمو اشتباه نشود. |
-| 📲 **تلگرام دوطرفه** | نتیجهٔ تحلیل و هشدارِ قیمت به ربات می‌آید؛ سفارش‌ها را می‌توانی با دکمهٔ Approve/Reject از موبایل تأیید کنی. |
-| 📖 **راهنمای کاملِ داخلِ برنامه** | دکمهٔ «؟» در نوارِ بالا — همه‌چیز را از صفر توضیح می‌دهد، نیازی به خواندنِ کد یا سند نیست. |
+| 🔌 **No-lag live data** | A WebSocket tick stream reads straight from the open MetaTrader terminal — price is the broker's real **bid**, and the forming candle is the terminal's own, not synthesized. Terminal closed? It falls back to Yahoo Finance automatically and upgrades back to live the instant the terminal reopens. |
+| 🎯 **25 strategies, one shared brain** | From the golden cross to a 1-minute VWAP scalp — each with rules, an automatic backtest, and computed entry/SL/TP. The chart banner and the plan tab **always agree**, because both read from one engine and one data feed. |
+| ⏸ **Neutral means no trade** | A signal only counts as fresh for a few bars after it fires. Past that, no entry line, no trade button — just a note on when the last signal happened. You can never accidentally trade a stale setup. |
+| 📊 **Spread-aware backtesting** | Backtests account for the real bid/ask cost of entering and exiting, surfacing a "net-after-spread" R that can reveal a chart-positive strategy is actually a loser once the spread is paid. |
+| 🌓 **Auto-execution — shadow first** | Arm any strategy on any symbol; the server evaluates it against live broker candles with no browser tab open. Every row starts in **shadow mode** — a hypothetical fill logged at the real bid/ask, zero real orders — until you explicitly flip it live. |
+| 🛡 **Safety guards on every order** | Daily loss cap, automatic trailing stop, news blackout windows, currency-exposure cap, broker minimum-stop-distance compliance, free-margin check — all enforced before a single order is sent. |
+| 🤖 **Risk preview, every time** | "If the stop hits: −$X, Y% of equity" — computed from the broker's real tick value, not a guess. A real (non-demo) account turns the whole panel red so it's never mistaken for a demo. |
+| 📲 **Two-way Telegram** | Analysis results and price alerts land in your bot; approve or reject a proposed trade right from your phone. |
+| 📖 **The manual lives in the app** | A "?" button in the top bar explains every feature in plain language — no need to read code or docs to understand a panel. |
 
 ---
 
-## شروعِ سریع
+## 🚀 Quick start
 
-### برای کاربرِ عادی (ویندوز)
+### For traders (Windows, no install)
 
-۱. از [صفحهٔ Releases](https://github.com/AmirGhl/TradingAgents/releases/latest) فایلِ `TradingAgents-WebUI-*-win64.zip` را دانلود و Extract کن.
-۲. روی `TradingAgentsLauncher.exe` دابل‌کلیک کن — مرورگر خودش باز می‌شود. هیچ نصبِ دیگری لازم نیست (پایتون و همه‌ی وابستگی‌ها داخلِ پوشهٔ `runtime` همراهِ برنامه است).
-۳. کلیدِ یک سرویسِ LLM (یا Ollama محلیِ رایگان) را در تنظیمات ⚙ بگذار، یا برای معاملهٔ زنده حسابِ متاتریدر ۵ را وصل کن.
+1. Grab the latest `TradingAgents-WebUI-*-win64.zip` from **[Releases](https://github.com/AmirGhl/TradingAgents/releases/latest)** and extract it.
+2. Double-click `TradingAgentsLauncher.exe` — your browser opens on its own. Nothing else to install; Python and every dependency ship inside the `runtime/` folder.
+3. Drop an LLM API key into Settings ⚙ (or point it at a free local [Ollama](https://ollama.com)), and/or connect your MetaTrader 5 account for live data and trading.
 
-جزئیاتِ کامل: [README_FA.md](README_FA.md).
+Full walkthrough: **[README_FA.md](README_FA.md)** (Persian) — or just click the **"?"** button once the app is open.
 
-### برای توسعه‌دهنده (از سورس)
+### For developers (from source)
 
 ```bash
 git clone https://github.com/AmirGhl/TradingAgents.git
@@ -68,44 +77,57 @@ npm --prefix webui/frontend run build
 python -m webui   # → http://127.0.0.1:8420
 ```
 
-برای اجرایِ خودکار (Auto-execution) روی سرور، Node.js هم لازم است (موتورِ سیگنالِ headless زیرِ Node اجرا می‌شود). بدونِ Node، همه‌چیز جز اجرای خودکارِ بی‌نیاز-از-تب کار می‌کند.
+Auto-execution's headless signal engine runs under Node.js — install it separately if you want strategies to fire with no browser tab open. Everything else (chart, live signal, one-click trading) works without Node.
 
 ---
 
-## معماری، در یک نگاه
+## 🏗 Architecture, at a glance
 
+```mermaid
+flowchart LR
+    MT5["MetaTrader 5\nterminal"] -- WebSocket --> SRV["server.py\n(FastAPI)"]
+    SRV -- "/ws/mt5" --> UI["Browser\nChart · Plan · Gauge"]
+    SRV -- Node subprocess --> ENGINE["signal_engine.mjs"]
+    ENGINE -. "imports the exact\nsame strategies.js" .-> UI
+    SRV -- "/api/mt5/order" --> MT5
 ```
-ترمینالِ متاتریدر ۵  ──WebSocket──▶  server.py  ──/ws/mt5──▶  مرورگر (چارت + پلن)
-                                        │
-                                        └──Node subprocess──▶  signal_engine.mjs
-                                             (همان strategies.js که مرورگر اجرا می‌کند)
-```
 
-- **یک منبعِ حقیقت برای سیگنال:** فایلِ `strategies.js` هم در مرورگر و هم (زیرِ Node) در سرور اجرا می‌شود — پس چارت، پلن، و اجرای خودکار هرگز نمی‌توانند سیگنالِ متفاوت نشان دهند.
-- **بک‌اند:** FastAPI تک‌فایلی (`webui/server.py`) — endpointهای دادهٔ بازار، مسیرِ سفارشِ MT5 با همهٔ گاردها، لوپ‌های پس‌زمینه (نگهبانِ ایمنی، تریلینگ‌استاپ، اجرای خودکار، تلگرام).
-- **فرانت‌اند:** React + lightweight-charts، با یک هوکِ سیگنالِ زندهٔ مشترک (`livesignal.js`) و یک ثبتِ WebSocket مشترک (`mt5stream.js`).
-- **هستهٔ AI:** گراف چندایجنتیِ LangGraph در `tradingagents/` — تحلیل‌گرها → مناظرهٔ تحقیق → معامله‌گر → تیمِ ریسک → مدیرِ پرتفوی.
+- **One source of truth for signals.** `strategies.js` runs in the browser *and*, unmodified, under Node in the server — so the chart, the plan tab, and the auto-execution engine can never disagree.
+- **Backend:** a single-file FastAPI service (`webui/server.py`) — market-data endpoints, the guarded MT5 order path, and background loops (safety watchdog, trailing stop, auto-execution, Telegram).
+- **Frontend:** React + `lightweight-charts`, with one shared live-signal hook (`livesignal.js`) and one shared WebSocket registry (`mt5stream.js`).
+- **AI core:** a LangGraph multi-agent graph in `tradingagents/` — analysts → research debate → trader → risk team → portfolio manager.
 
-نقشهٔ کاملِ فایل‌به‌فایل، توضیحِ هر endpoint، و هر گارد: **[RAHNAMA.md](RAHNAMA.md)**.
+Full file-by-file map, every endpoint, and every guard: **[RAHNAMA.md](RAHNAMA.md)**.
 
 ---
 
-## نیازمندی‌ها
+## 🌓 Shadow mode: prove it before you trust it
 
-- **کاربرِ نهایی:** ویندوزِ ۶۴بیتی، اتصالِ اینترنت. برای دادهٔ زنده و معامله، ترمینالِ MetaTrader 5 نصب و لاگین‌شده روی همان سیستم.
-- **توسعه‌دهنده:** پایتون ۳.۱۰+، Node.js ۱۸+ (برای فرانت‌اند و موتورِ headless)، و پکیجِ `MetaTrader5` (فقط ویندوز) اگر اتصالِ زنده می‌خواهی.
-- حداقل یک کلیدِ سرویسِ LLM (Anthropic، Groq، OpenRouter، …) یا [Ollama](https://ollama.com) محلیِ رایگان.
+> [!TIP]
+> Every armed strategy starts in shadow mode. Let it run for a few days, watch the shadow journal, and only flip a row to live once you've actually seen it work.
+
+Auto-execution never sends a real order by default — it logs a *hypothetical* fill at the real live bid/ask into a shadow journal. Going live is an explicit, confirmed, per-strategy opt-in. It's the difference between a backtest's optimistic fantasy and proof against the real, moving market.
 
 ---
 
-## این پروژه بر چه چیزی ساخته شده
+## 📋 Requirements
 
-هستهٔ تحلیلِ چندایجنتی بر پایهٔ فریمورکِ متن‌بازِ **[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)** است. این ریپو آن هسته را نگه داشته و رویش یک اپِ وبِ کاملِ Persian-first با موتورِ استراتژیِ زنده، اتصالِ متاتریدر، اجرای خودکار، و گاردهای ایمنی ساخته است. لایسنس: [Apache 2.0](LICENSE).
+| | |
+|---|---|
+| **End user** | 64-bit Windows, internet connection. MetaTrader 5, installed and logged in, for live data and trading. |
+| **Developer** | Python 3.10+, Node.js 18+ (frontend build + the headless engine), the `MetaTrader5` package (Windows-only) for live integration. |
+| **Either way** | One LLM provider key (Anthropic, Groq, OpenRouter, …) — or a free local [Ollama](https://ollama.com) install. |
+
+---
+
+## 🙏 Built on
+
+The multi-agent analysis core is built on the open-source **[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)** framework. This repository keeps that core and builds a full desktop web app on top of it: a live strategy engine, real-time MetaTrader integration, auto-execution with shadow mode, and safety guards throughout. Licensed under [Apache 2.0](LICENSE).
 
 ---
 
 <div align="center">
 
-TradingAgents یک ابزار پژوهشی است؛ هیچ‌چیز در این مخزن توصیهٔ مالی یا سرمایه‌گذاری نیست.
+TradingAgents is a research tool. Nothing in this repository is financial or investment advice.
 
 </div>
