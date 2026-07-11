@@ -16,8 +16,9 @@
 
 **[⬇ Download for Windows](https://github.com/AmirGhl/TradingAgents/releases/latest)** &nbsp;·&nbsp;
 **[📘 Quick start (Persian)](README_FA.md)** &nbsp;·&nbsp;
-**[🛠 Full architecture guide](RAHNAMA.md)** &nbsp;·&nbsp;
-**[🗺 Roadmap](ideas/)**
+**[🛠 Architecture guide](RAHNAMA.md)** &nbsp;·&nbsp;
+**[🗺 Roadmap](ideas/)** &nbsp;·&nbsp;
+**[🤝 Contributing](CONTRIBUTING.md)**
 
 </div>
 
@@ -25,6 +26,27 @@
 
 > [!WARNING]
 > This is a research tool, not financial advice. No signal is guaranteed. Every strategy, live signal, and auto-execution row starts **safe by default** — see [Shadow mode](#-shadow-mode-prove-it-before-you-trust-it) below.
+
+---
+
+## Screenshots
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/screenshots/chart.png" alt="Chart page — live tick stream, 25-strategy gauge, auto-trade" width="100%">
+<br><sub><b>Chart</b> — zero-lag MT5 stream · strategy gauge · one-click order</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/plan.png" alt="Trade plan — signal, position calculator, spread-aware backtest, strategy scanner" width="100%">
+<br><sub><b>Trade plan</b> — signal · position calc · spread-aware backtest · scanner</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/liverun.png" alt="Live run — multi-agent AI analysis with tabbed output" width="100%">
+<br><sub><b>AI analysis</b> — multi-agent debate → one decision</sub>
+</td>
+</tr>
+</table>
 
 ---
 

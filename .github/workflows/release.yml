@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*-webui'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & publish Windows release
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python deps
+        run: pip install -e ".[webui]"
+
+      - name: Build frontend
+        run: npm --prefix webui/frontend ci && npm --prefix webui/frontend run build
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build launcher exe
+        run: pyinstaller --onefile --name TradingAgentsLauncher launcher.py
+
+      - name: Determine version from tag
+        id: ver
+        run: echo "TAG=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.TAG }}"
+          $out = "release\TradingAgents"
+          New-Item -ItemType Directory -Force $out | Out-Null
+
+          # Launcher exe
+          Copy-Item dist\TradingAgentsLauncher.exe $out
+
+          # Server package (installed copy lives here in source layout)
+          $pkg = "webui"
+          Copy-Item $pkg $out\webui -Recurse -Force
+
+          # Extras at root
+          foreach ($f in @(".env.example","README.md","README_FA.md","RAHNAMA.md","LICENSE")) {
+            if (Test-Path $f) { Copy-Item $f $out }
+          }
+
+          Compress-Archive -Path $out -DestinationPath "release\TradingAgents-WebUI-$ver-win64.zip" -Force
+          Write-Host "Packaged release\TradingAgents-WebUI-$ver-win64.zip"
+
+      - name: Create GitHub release (draft)
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: "TradingAgents Web UI ${{ steps.ver.outputs.TAG }}"
+          files: |
+            release/TradingAgents-WebUI-${{ steps.ver.outputs.TAG }}-win64.zip
+            release/TradingAgents/TradingAgentsLauncher.exe
+          body: |
+            ## TradingAgents Web UI ${{ steps.ver.outputs.TAG }}
+
+            **For end users:** download the `.zip`, extract, and double-click `TradingAgentsLauncher.exe`.
+
+            Full changelog and Persian quick-start: see `README_FA.md` inside the zip, or the **"?"** button in the app.
+
+            > ⚠️ This is a research tool, not financial advice.

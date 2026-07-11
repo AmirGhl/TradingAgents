@@ -1,0 +1,59 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in as much detail as you can — log files help a lot.
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How are you running the app?
+      options:
+        - Launcher exe (TradingAgentsLauncher.exe)
+        - From source (python -m webui)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / release tag
+      placeholder: e.g. v0.4.0-webui
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Paste the relevant section from **`webui_server.log`** (next to the exe) or the browser console.
+        Tip: wrap long logs in a code block — ```log ... ```
+      render: text
+
+  - type: input
+    id: mt5
+    attributes:
+      label: MetaTrader 5 terminal version (if relevant)
+      placeholder: e.g. 5.0.4560 build 4560
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I am NOT sharing private account credentials in this report
+          required: true
