@@ -66,7 +66,7 @@ def fallback_signal(direction, prices, language):
     closes, highs, lows = prices["close"], prices["high"], prices["low"]
     last = closes[-1]
     atr = atr14(highs, lows, closes) or last * 0.02
-    lo20, hi20 = min(lows[-20:]), max(highs[-20:])
+    lo20 = min(lows[-20:])
     if direction == "SELL":
         entry, sl = last, last + 1.5 * atr
         tp1, tp2 = last - 1.5 * atr, last - 3 * atr
@@ -232,8 +232,8 @@ def main():
                 print("@@STAGE@@done", flush=True)
                 return
 
-    from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
 
     config = DEFAULT_CONFIG.copy()
     config["llm_provider"] = args.provider

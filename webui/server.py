@@ -12,6 +12,7 @@ webui_settings.json (telegram / scheduler / alerts / last run config).
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -584,7 +585,7 @@ def _enc_pw(plain):
     if not plain or str(plain).startswith(_PW_MARK):
         return plain
     data = str(plain).encode("utf-8")
-    xored = bytes(a ^ b for a, b in zip(data, _keystream(len(data), _machine_key())))
+    xored = bytes(a ^ b for a, b in zip(data, _keystream(len(data), _machine_key()), strict=False))
     return _PW_MARK + base64.b64encode(xored).decode()
 
 
@@ -594,7 +595,7 @@ def _dec_pw(val):
         return val
     try:
         data = base64.b64decode(str(val)[len(_PW_MARK):])
-        return bytes(a ^ b for a, b in zip(data, _keystream(len(data), _machine_key()))).decode("utf-8")
+        return bytes(a ^ b for a, b in zip(data, _keystream(len(data), _machine_key()), strict=False)).decode("utf-8")
     except Exception:
         return val
 
@@ -999,10 +1000,8 @@ async def ws_mt5(ws: WebSocket):
         pass
     finally:
         watcher.cancel()
-        try:
+        with contextlib.suppress(Exception):
             await ws.close()
-        except Exception:
-            pass
 
 
 # ---- headless signal engine ------------------------------------------------
@@ -1085,10 +1084,8 @@ async def engine_eval(payload):
                 raise RuntimeError("engine closed")
             return json.loads(line.decode())
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 p.kill()
-            except Exception:
-                pass
             _ENGINE["proc"] = None  # respawn on the next call
             return None
 
@@ -2024,10 +2021,8 @@ def _trail_check():
 
 async def trail_loop():
     while True:
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.to_thread(_trail_check)
-        except Exception:
-            pass
         await asyncio.sleep(25)
 
 
@@ -2050,10 +2045,8 @@ def _reconcile():
 
 async def reconcile_startup():
     await asyncio.sleep(4)  # let the server settle before touching MT5
-    try:
+    with contextlib.suppress(Exception):
         await asyncio.to_thread(_reconcile)
-    except Exception:
-        pass
 
 
 def _in_blackout(s):
@@ -2146,10 +2139,8 @@ def _health_check():
 
 async def health_loop():
     while True:
-        try:
+        with contextlib.suppress(Exception):
             await asyncio.to_thread(_health_check)
-        except Exception:
-            pass
         await asyncio.sleep(45)
 
 
@@ -2243,10 +2234,8 @@ async def _auto_tick():
 
 async def auto_loop():
     while True:
-        try:
+        with contextlib.suppress(Exception):
             await _auto_tick()
-        except Exception:
-            pass
         await asyncio.sleep(4)
 
 
@@ -2507,17 +2496,13 @@ async def ws_run(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        try:
+        with contextlib.suppress(Exception):
             await ws.send_json({"type": "error", "data": f"{type(e).__name__}: {e}"})
-        except Exception:
-            pass
     finally:
         if proc and proc.returncode is None:
             proc.kill()
-        try:
+        with contextlib.suppress(Exception):
             await ws.close()
-        except Exception:
-            pass
 
 
 if STATIC_DIR.exists():

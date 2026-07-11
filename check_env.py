@@ -1,7 +1,9 @@
 """
 چک محیط — قبل از اجرای run_ollama.py این رو اجرا کن
 """
-import subprocess, sys, urllib.request, json
+import json
+import sys
+import urllib.request
 
 print("=== چک محیط TradingAgents + Ollama ===\n")
 
@@ -19,7 +21,7 @@ for pkg in packages:
 
 # 3. tradingagents
 try:
-    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.default_config import DEFAULT_CONFIG  # noqa: F401
     print("[3] tradingagents: ✓")
 except ImportError:
     print("[3] tradingagents: ✗  →  pip install -e .")
@@ -30,9 +32,9 @@ try:
     with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=5) as r:
         data = json.loads(r.read())
         models = [m["name"] for m in data.get("models", [])]
-        print(f"    Ollama: ✓  (در حال اجرا)")
+        print("    Ollama: ✓  (در حال اجرا)")
         if models:
-            print(f"    مدل‌های موجود:")
+            print("    مدل‌های موجود:")
             for m in models:
                 marker = " ← این رو داری" if "qwen2.5" in m else ""
                 print(f"      - {m}{marker}")
@@ -49,7 +51,7 @@ try:
             print("\n    [✓] qwen2.5:7b آماده‌ست!")
 
 except Exception as e:
-    print(f"    Ollama: ✗  (اجرا نیست یا پورت ۱۱۴۳۴ بسته‌ست)")
+    print("    Ollama: ✗  (اجرا نیست یا پورت ۱۱۴۳۴ بسته‌ست)")
     print(f"    خطا: {e}")
     print("    →  ollama serve  را در یه ترمینال جداگانه اجرا کن")
 

@@ -10,6 +10,7 @@ Diagnostics: server output goes to webui_server.log; launcher crashes are
 written to launcher_error.log and shown in a native message box.
 """
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -97,7 +98,7 @@ def main():
     log_path = project_dir() / "webui_server.log"
     # Append (never truncate): a second launcher instance or a previous
     # crash must not wipe the evidence, and -u keeps the log realtime.
-    log = open(log_path, "a", encoding="utf-8", errors="replace")
+    log = open(log_path, "a", encoding="utf-8", errors="replace")  # noqa: SIM115
     log.write(f"\n--- launcher {time.strftime('%Y-%m-%d %H:%M:%S')} starting server ---\n")
     log.flush()
     env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
@@ -139,10 +140,8 @@ if __name__ == "__main__":
         main()
     except Exception as e:  # noqa: BLE001 — last-resort diagnostics for the exe
         err_log = project_dir() / "launcher_error.log"
-        try:
+        with contextlib.suppress(OSError):
             err_log.write_text(traceback.format_exc(), encoding="utf-8")
-        except OSError:
-            pass
         alert("TradingAgents Launcher",
               f"خطا در اجرای لانچر:\n{type(e).__name__}: {e}\n\nجزئیات: {err_log}")
         sys.exit(1)

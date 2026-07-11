@@ -8,8 +8,9 @@ TradingAgents با Ollama + Qwen 2.5:7b
 """
 
 import sys
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 # --- تنظیمات مدل ---
 config = DEFAULT_CONFIG.copy()
@@ -25,7 +26,7 @@ TICKER = "AAPL"          # نماد سهم (مثلاً AAPL, TSLA, NVDA)
 DATE   = "2024-06-01"    # تاریخ تحلیل (نه خیلی جدید، داده‌های تاریخی بهتره)
 
 print(f"\n{'='*50}")
-print(f"  TradingAgents | Ollama | qwen2.5:7b")
+print("  TradingAgents | Ollama | qwen2.5:7b")
 print(f"  نماد: {TICKER}  |  تاریخ: {DATE}")
 print(f"{'='*50}\n")
 
@@ -42,7 +43,7 @@ try:
     print(f"{'='*50}\n")
 
 except ConnectionError as e:
-    print(f"\n[خطا] نمیشه به Ollama وصل شد:")
+    print("\n[خطا] نمیشه به Ollama وصل شد:")
     print(f"  {e}")
     print("\nراه‌حل: مطمئن شو Ollama داره اجرا میشه:")
     print("  ollama serve")
